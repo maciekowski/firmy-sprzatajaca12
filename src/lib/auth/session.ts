@@ -18,7 +18,16 @@ export type SessionUser = User;
  * Tworzy sesję: losowy token trafia do ciasteczka, w bazie zostaje tylko jego skrót.
  * Dzięki temu wyciek bazy nie pozwala przejąć aktywnych sesji.
  */
-export async function createSession(userId: string, ip?: string | null, userAgent?: string | null): Promise<string> {
+/**
+ * Tworzy sesję. `awaiting2fa = true` oznacza sesję po poprawnym haśle,
+ * ale przed podaniem kodu TOTP — taka sesja NIE ma dostępu do danych firmy.
+ */
+export async function createSession(
+  userId: string,
+  ip?: string | null,
+  userAgent?: string | null,
+  options: { awaiting2fa?: boolean } = {},
+): Promise<string> {
   const token = randomBytes(32).toString('base64url');
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + SESSION_MS);
@@ -29,6 +38,7 @@ export async function createSession(userId: string, ip?: string | null, userAgen
     expiresAt,
     ip: ip ?? null,
     userAgent: userAgent ?? null,
+    awaiting2fa: options.awaiting2fa ?? false,
   });
 
   const store = await cookies();
@@ -72,7 +82,15 @@ export async function getUserBySessionToken(token: string): Promise<SessionUser 
     .select({ user: users })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
-    .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, new Date()), isNull(sessions.revokedAt)))
+    .where(
+      and(
+        eq(sessions.tokenHash, hashToken(token)),
+        gt(sessions.expiresAt, new Date()),
+        isNull(sessions.revokedAt),
+        // sesja przed potwierdzeniem TOTP nie daje dostępu do danych
+        eq(sessions.awaiting2fa, false),
+      ),
+    )
     .limit(1);
 
   if (rows.length === 0) return null;
@@ -101,4 +119,42 @@ export async function setActiveOrganizationCookie(organizationId: string): Promi
 export async function getActiveOrganizationId(): Promise<string | null> {
   const store = await cookies();
   return store.get(ORG_COOKIE)?.value ?? null;
+}
+
+/**
+ * Zwraca użytkownika sesji, która czeka na drugi składnik (po hassłe, przed kodem).
+ * Używane wyłącznie przez stronę weryfikacji TOTP.
+ */
+export async function getPending2faUser(): Promise<SessionUser | null> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+
+  const rows = await db
+    .select({ user: users })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .where(
+      and(
+        eq(sessions.tokenHash, hashToken(token)),
+        gt(sessions.expiresAt, new Date()),
+        isNull(sessions.revokedAt),
+        eq(sessions.awaiting2fa, true),
+      ),
+    )
+    .limit(1);
+
+  return rows[0]?.user ?? null;
+}
+
+/** Potwierdzenie drugiego składnika — sesja odzyskuje pełny dostęp. */
+export async function confirmSession2fa(): Promise<void> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return;
+
+  await db
+    .update(sessions)
+    .set({ awaiting2fa: false })
+    .where(and(eq(sessions.tokenHash, hashToken(token)), isNull(sessions.revokedAt)));
 }

@@ -8,7 +8,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
-import { files, jobAssignments, jobNotes, jobs, memberships, sessions, syncRecords, users } from '@/lib/db/schema';
+import {
+  files,
+  jobAssignments,
+  jobNotes,
+  jobs,
+  memberships,
+  sessions,
+  syncRecords,
+  timeEntries,
+  users,
+} from '@/lib/db/schema';
 import { hashToken } from '@/lib/auth/tokens';
 import { updateJobStatus } from '@/lib/services/jobs';
 import { createTestCustomer, createTestOrganization, deleteTestOrganization, deleteTestUser } from '../helpers';
@@ -222,6 +232,66 @@ describe('synchronizacja offline (kolejka urządzenia)', () => {
   it('pusta partia jest odrzucana', async () => {
     const response = await post(jobId, [], cookieWorker);
     expect(response.status).toBe(400);
+  });
+
+  it('czas pracy wykonany offline jest zapisywany z oznaczeniem źródła', async () => {
+    const startedAt = new Date(Date.now() - 2 * 60 * 60 * 1000 - 30 * 60 * 1000);
+    const endedAt = new Date(Date.now() - 30 * 60 * 1000);
+
+    const clientId = randomBytes(16).toString('hex');
+    const response = await post(
+      jobId,
+      [
+        {
+          clientId,
+          kind: 'time',
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+          pausedMs: 30 * 60 * 1000, // 30 minut pauzy
+        },
+      ],
+      cookieWorker,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(1);
+
+    const entries = await db.select().from(timeEntries).where(eq(timeEntries.jobId, jobId));
+    const synced = entries.find((entry) => entry.source === 'OFFLINE_SYNC');
+    expect(synced).toBeTruthy();
+    // 2h30m pracy z 30-minutową pauzą = 1h30m = 5400 s
+    expect(synced!.durationSeconds).toBe(5400);
+    expect(synced!.status).toBe('STOPPED');
+    expect(synced!.pausedMs).toBe(30 * 60 * 1000);
+
+    // druga próba z tym samym clientId nie dubluje wpisu
+    const again = await post(
+      jobId,
+      [{ clientId, kind: 'time', startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString() }],
+      cookieWorker,
+    );
+    expect(again.body.duplicates).toBe(1);
+    const after = await db.select().from(timeEntries).where(eq(timeEntries.jobId, jobId));
+    expect(after.filter((entry) => entry.source === 'OFFLINE_SYNC')).toHaveLength(1);
+  });
+
+  it('odrzuca czas pracy z błędnymi godzinami', async () => {
+    const clientId = randomBytes(16).toString('hex');
+    const response = await post(
+      jobId,
+      [
+        {
+          clientId,
+          kind: 'time',
+          startedAt: 'nie-jest-data',
+          endedAt: new Date().toISOString(),
+        },
+      ],
+      cookieWorker,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.errors).toBe(1);
   });
 
   it('status zlecenia zmieniony z kolejki jest widoczny w danych', async () => {

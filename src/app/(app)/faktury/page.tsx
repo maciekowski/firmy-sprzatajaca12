@@ -1,14 +1,31 @@
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Download, Plus } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/guards';
 import { countInvoices, getInvoiceSummary, listInvoices } from '@/lib/services/invoices';
-import { Badge, ButtonLink, Card, EmptyState, PageHeader, Stat } from '@/components/ui';
+import { Badge, ButtonLink, Card, CardBody, CardHeader, EmptyState, PageHeader, Stat } from '@/components/ui';
+import { SubmitButton } from '@/components/submit-button';
 import { formatMoney } from '@/lib/money';
 import { formatDate, INVOICE_STATUSES, INVOICE_STATUS_TONES } from '@/lib/constants';
 import { Pagination } from '@/components/ui/pagination';
 import { parsePage, totalPages } from '@/lib/pagination';
 
 export const metadata = { title: 'Faktury' };
+
+/** Domyślny okres eksportu: bieżący miesiąc kalendarzowy. */
+function monthRange() {
+  const now = new Date();
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
+
+function defaultFrom(): string {
+  return monthRange().from;
+}
+
+function defaultTo(): string {
+  return monthRange().to;
+}
 
 export default async function InvoicesPage({ searchParams }: { searchParams: Promise<{ status?: string; blad?: string; strona?: string }> }) {
   const context = await requirePermission('invoice:read');
@@ -41,6 +58,29 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
       {blad ? (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">{blad}</div>
       ) : null}
+
+      <Card className="mb-6">
+        <CardHeader title="Eksport JPK_FA" description="Plik dla urzędu skarbowego — powstaje wyłącznie z zapisanych faktur (bez roboczych i anulowanych)." />
+        <CardBody>
+          <form action="/api/faktury/jpk" method="get" className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="label" htmlFor="od">
+                Data od
+              </label>
+              <input id="od" name="od" type="date" required className="input" defaultValue={defaultFrom()} />
+            </div>
+            <div>
+              <label className="label" htmlFor="do">
+                Data do
+              </label>
+              <input id="do" name="do" type="date" required className="input" defaultValue={defaultTo()} />
+            </div>
+            <SubmitButton variant="secondary">
+              <Download className="h-4 w-4" /> Pobierz JPK_FA
+            </SubmitButton>
+          </form>
+        </CardBody>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Wystawiono" value={formatMoney(summary.totalCents, currency)} />

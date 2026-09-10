@@ -6,7 +6,8 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
 import { organizations, memberships, passwordResetTokens, users } from '@/lib/db/schema';
 import { hashPassword, validatePasswordStrength, verifyPassword } from '@/lib/auth/password';
-import { createSession, destroySession } from '@/lib/auth/session';
+import { recoveryCodeMatches, verifyTotpCode } from '@/lib/auth/totp';
+import { confirmSession2fa, createSession, destroySession, getPending2faUser } from '@/lib/auth/session';
 import { generateToken, hashToken, tokenExpiry } from '@/lib/auth/tokens';
 import { authKey, rateLimit, resetRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit';
@@ -157,10 +158,82 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
   }
 
   const userAgent = (await headers()).get('user-agent');
+  const next = safeNext(formData.get('next') ? String(formData.get('next')) : null);
+
+  // Konto z włączonym 2FA: najpierw sesja „oczekująca” — bez dostępu do danych firmy.
+  if (user.totpSecret) {
+    await createSession(user.id, ip, userAgent, { awaiting2fa: true });
+
+    await writeAuditLog({
+      userId: user.id,
+      action: 'user.login_2fa_required',
+      ip,
+      userAgent,
+    });
+
+    redirect(next ? `/logowanie/2fa?next=${encodeURIComponent(next)}` : '/logowanie/2fa');
+  }
+
   await createSession(user.id, ip, userAgent);
   resetRateLimit(authKey('login', rawEmail, ip));
 
   await writeAuditLog({ userId: user.id, action: 'user.login', ip, userAgent });
+
+  redirect(next ?? '/dashboard');
+}
+
+export type TotpState = { ok: boolean; error?: string };
+
+/**
+ * Weryfikacja drugiego składnika (kod z aplikacji lub kod zapasowy).
+ * Kod zapasowy działa jednorazowo — po użyciu jest usuwany z bazy.
+ */
+export async function verifyTotpAction(_prev: TotpState, formData: FormData): Promise<TotpState> {
+  const ip = await clientIp();
+  const pending = await getPending2faUser();
+  if (!pending) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
+
+  const limit = rateLimit(authKey('2fa', pending.id, ip), 10, 5 * 60_000);
+  if (!limit.allowed) {
+    return { ok: false, error: `Zbyt wiele prób. Spróbuj ponownie za ${limit.retryAfterSeconds} s.` };
+  }
+
+  const raw = String(formData.get('code') ?? '').trim();
+  if (!raw) return { ok: false, error: 'Podaj kod z aplikacji uwierzytelniającej.' };
+
+  const userAgent = (await headers()).get('user-agent');
+  let accepted = false;
+
+  if (pending.totpSecret && /^\d{6}$/.test(raw)) {
+    accepted = verifyTotpCode(pending.totpSecret, raw);
+  }
+
+  // kod zapasowy (jednorazowy) — akceptujemy tylko, gdy nie zadziałał kod TOTP
+  if (!accepted && pending.recoveryCodeHashes.length > 0) {
+    const index = pending.recoveryCodeHashes.findIndex((hash) => recoveryCodeMatches(raw, hash));
+    if (index >= 0) {
+      const remaining = pending.recoveryCodeHashes.filter((_, position) => position !== index);
+      await db.update(users).set({ recoveryCodeHashes: remaining, updatedAt: new Date() }).where(eq(users.id, pending.id));
+      accepted = true;
+
+      await writeAuditLog({
+        userId: pending.id,
+        action: 'user.login_2fa_recovery_used',
+        ip,
+        userAgent,
+        meta: { remaining: remaining.length },
+      });
+    }
+  }
+
+  if (!accepted) {
+    await writeAuditLog({ userId: pending.id, action: 'user.login_2fa_failed', ip, userAgent });
+    return { ok: false, error: 'Nieprawidłowy kod. Spróbuj ponownie.' };
+  }
+
+  await confirmSession2fa();
+  resetRateLimit(authKey('2fa', pending.id, ip));
+  await writeAuditLog({ userId: pending.id, action: 'user.login_2fa_success', ip, userAgent });
 
   const next = safeNext(formData.get('next') ? String(formData.get('next')) : null);
   redirect(next ?? '/dashboard');

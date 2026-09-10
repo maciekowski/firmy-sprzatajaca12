@@ -1,0 +1,1 @@
+ALTER TABLE "time_entries" ADD COLUMN "source" text DEFAULT 'APP' NOT NULL;

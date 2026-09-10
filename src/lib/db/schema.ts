@@ -267,6 +267,13 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   phone: text('phone'),
   passwordHash: text('password_hash').notNull(),
+  /**
+   * Uwierzytelnianie dwuskładnikowe (TOTP).
+   * `totpSecret` wypełnione = 2FA włączone; kody zapasowe wyłącznie jako skróty.
+   */
+  totpSecret: text('totp_secret'),
+  totpEnabledAt: timestamp('totp_enabled_at', { withTimezone: true }),
+  recoveryCodeHashes: text('recovery_code_hashes').array().default(sql`'{}'::text[]`).notNull(),
   isSuperAdmin: boolean('is_super_admin').default(false).notNull(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   createdAt: createdAt(),
@@ -285,6 +292,11 @@ export const sessions = pgTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * Sesja przed potwierdzeniem drugiego składnika nie ma dostępu do danych firmy:
+     * `awaiting2fa = true` oznacza „hasło poprawne, czekamy na kod TOTP”.
+     */
+    awaiting2fa: boolean('awaiting_2fa').default(false).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     createdAt: createdAt(),
   },
@@ -1031,6 +1043,8 @@ export const timeEntries = pgTable(
     pausedMs: integer('paused_ms').default(0).notNull(),
     durationSeconds: integer('duration_seconds'),
     note: text('note'),
+    /** Źródło zapisu: APP (licznik w aplikacji) albo OFFLINE_SYNC (kolejka offline). */
+    source: text('source').default('APP').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

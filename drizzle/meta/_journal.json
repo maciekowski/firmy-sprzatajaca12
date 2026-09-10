@@ -43,6 +43,20 @@
       "when": 1789079180068,
       "tag": "0005_nosy_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789079788641,
+      "tag": "0006_tense_pyro",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789079886987,
+      "tag": "0007_dashing_red_hulk",
+      "breakpoints": true
     }
   ]
 }

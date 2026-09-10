@@ -256,6 +256,52 @@ export async function getJob(organizationId: string, jobId: string) {
   return rows[0] ?? null;
 }
 
+/**
+ * Zapis czasu pracy wykonanego offline (urządzenie bez sieci).
+ *
+ * Czasy pochodzą z urządzenia i są zapisywane dokładnie tak, jak je zarejestrowano
+ * (start, koniec, suma pauz) — z jawnym oznaczeniem `source = OFFLINE_SYNC`.
+ * System nie zgaduje żadnej z tych wartości: jeżeli brakuje którejś, zapis jest odrzucany.
+ */
+export async function recordOfflineTimeEntry(
+  ctx: ServiceContext,
+  jobId: string,
+  input: { startedAt: Date; endedAt: Date; pausedMs?: number; note?: string | null },
+): Promise<OperationResult<TimeEntry>> {
+  const job = await getJob(ctx.organizationId, jobId);
+  if (!job) return { ok: false, error: 'Nie znaleziono zlecenia.' };
+
+  const pausedMs = Math.max(0, Math.round(input.pausedMs ?? 0));
+  const durationSeconds = Math.max(0, Math.round((input.endedAt.getTime() - input.startedAt.getTime() - pausedMs) / 1000));
+
+  const [entry] = await db
+    .insert(timeEntries)
+    .values({
+      organizationId: ctx.organizationId,
+      jobId,
+      userId: ctx.userId,
+      status: 'STOPPED',
+      startedAt: input.startedAt,
+      endedAt: input.endedAt,
+      pausedMs,
+      durationSeconds,
+      note: input.note ?? null,
+      source: 'OFFLINE_SYNC',
+    })
+    .returning();
+
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'job.time_entry_synced',
+    entityType: 'job',
+    entityId: jobId,
+    meta: { durationSeconds, pausedMs, source: 'OFFLINE_SYNC' },
+  });
+
+  return { ok: true, data: entry! };
+}
+
 export async function getJobItems(jobId: string): Promise<JobItem[]> {
   return db.select().from(jobItems).where(eq(jobItems.jobId, jobId)).orderBy(asc(jobItems.sortOrder));
 }

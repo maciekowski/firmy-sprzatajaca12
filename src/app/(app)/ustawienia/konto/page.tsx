@@ -7,6 +7,7 @@ import { Badge, Card, CardBody, CardHeader, PageHeader } from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
 import { revokeAllSessionsAction, revokeSessionAction } from '@/app/(app)/ustawienia/konto/actions';
 import { ProfileForm, PasswordForm } from '@/components/settings/account-forms';
+import { TwoFactorCard } from '@/components/settings/two-factor-card';
 import { ROLE_LABELS } from '@/lib/authz/permissions';
 import { formatDateTime } from '@/lib/constants';
 
@@ -49,6 +50,19 @@ export default async function AccountPage() {
             <CardHeader title="Hasło" />
             <CardBody>
               <PasswordForm />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Dwuskładnikowe logowanie (2FA)"
+              description="Kod TOTP z aplikacji na telefonie. Bez niego samo hasło nie wystarczy."
+            />
+            <CardBody>
+              <TwoFactorCard
+                enabled={Boolean(user.totpSecret)}
+                enabledAt={user.totpEnabledAt ? formatDateTime(user.totpEnabledAt) : null}
+              />
             </CardBody>
           </Card>
         </div>

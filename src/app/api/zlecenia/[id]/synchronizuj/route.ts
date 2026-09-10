@@ -4,7 +4,7 @@ import { db } from '@/lib/db/client';
 import { syncRecords } from '@/lib/db/schema';
 import { ForbiddenError, UnauthorizedError, requireJobExecutionAccessOrThrow } from '@/lib/auth/guards';
 import { rateLimit } from '@/lib/rate-limit';
-import { addJobNote, addJobPhoto, getJob, toggleChecklistItem, updateJobStatus } from '@/lib/services/jobs';
+import { addJobNote, addJobPhoto, getJob, recordOfflineTimeEntry, toggleChecklistItem, updateJobStatus } from '@/lib/services/jobs';
 import type { Job } from '@/lib/db/schema';
 
 const ALLOWED_STATUSES: Job['status'][] = ['EN_ROUTE', 'ON_SITE', 'IN_PROGRESS', 'COMPLETED', 'NO_SHOW'];
@@ -13,7 +13,8 @@ type SyncItem =
   | { clientId: string; kind: 'note'; body: string }
   | { clientId: string; kind: 'photo'; fileId: string; type?: 'BEFORE' | 'DURING' | 'AFTER' | 'OTHER'; caption?: string }
   | { clientId: string; kind: 'status'; status: Job['status']; note?: string }
-  | { clientId: string; kind: 'checklist'; itemId: string; done: boolean };
+  | { clientId: string; kind: 'checklist'; itemId: string; done: boolean }
+  | { clientId: string; kind: 'time'; startedAt: string; endedAt: string; pausedMs?: number; note?: string };
 
 function parseItem(raw: unknown): SyncItem | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -51,6 +52,20 @@ function parseItem(raw: unknown): SyncItem | null {
       return typeof item.itemId === 'string' && item.itemId
         ? { clientId, kind: 'checklist', itemId: item.itemId, done: item.done !== false }
         : null;
+    case 'time': {
+      const startedAt = new Date(String(item.startedAt));
+      const endedAt = new Date(String(item.endedAt));
+      if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return null;
+      if (endedAt.getTime() <= startedAt.getTime()) return null;
+      return {
+        clientId,
+        kind: 'time',
+        startedAt: startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        pausedMs: Number.isFinite(Number(item.pausedMs)) ? Math.max(0, Math.round(Number(item.pausedMs))) : 0,
+        note: typeof item.note === 'string' ? item.note : undefined,
+      };
+    }
     default:
       return null;
   }
@@ -161,6 +176,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       case 'checklist': {
         const result = await toggleChecklistItem(ctx, jobId, item.itemId, item.done);
         outcome = result.ok ? { ok: true, entityId: item.itemId } : { ok: false, error: result.error };
+        break;
+      }
+      case 'time': {
+        const result = await recordOfflineTimeEntry(ctx, jobId, {
+          startedAt: new Date(item.startedAt),
+          endedAt: new Date(item.endedAt),
+          pausedMs: item.pausedMs,
+          note: item.note ?? null,
+        });
+        outcome = result.ok
+          ? { ok: true, entityId: result.data!.id }
+          : { ok: false, error: result.error };
         break;
       }
     }

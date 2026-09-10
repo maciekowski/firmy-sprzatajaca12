@@ -74,12 +74,28 @@ wyłącznie zlecenia, do których jest przypisany.
 ## Praca w terenie bez sieci (kolejka offline)
 
 Widok wykonania zlecenia ma kolejkę offline (IndexedDB): pracownik bez zasięgu zapisuje
-notatki i zdjęcia lokalnie, a po powrocie do sieci wysyła je partią do
+notatki, zdjęcia, status, checklistę i **czas pracy** (licznik działa bez sieci), a po powrocie
+do sieci wysyła je partią do
 `POST /api/zlecenia/<id>/synchronizuj`. Każda pozycja ma `clientId` nadawany na urządzeniu —
 unikalność `(organizationId, clientId)` w tabeli `sync_records` gwarantuje, że ponowiona
 wysyłka nie utworzy duplikatu. Wynik jest rozliczany **per pozycja**, a dane oczekujące są
 oznaczone jako „oczekuje” (nic nie jest pokazywane jako zapisane na serwerze przed
 potwierdzeniem).
+
+## Bezpieczeństwo konta (2FA)
+
+Logowanie dwuskładnikowe w standardzie TOTP (RFC 6238): sekret konfigurowany kodem QR,
+weryfikacja z tolerancją ±30 s, **8 jednorazowych kodów zapasowych** (w bazie wyłącznie skróty
+SHA-256). Sesja powstała po hassłe, ale przed podaniem kodu, ma flagę `awaiting_2fa` i **nie ma
+dostępu do żadnych danych firmy**. Kody zapasowe działają jednorazowo, a każda próba jest
+rate-limitowana i audytowana.
+
+## Eksport JPK_FA
+
+`/api/faktury/jpk?od=YYYY-MM-DD&do=YYYY-MM-DD` generuje plik JPK_FA(3) z danych zapisanych
+w bazie — bez faktur roboczych i anulowanych, z kwotami przeliczonymi z groszy i sumami
+kontrolnymi. Brak NIP firmy lub pusty okres to **jasny błąd**, nigdy pusty plik (plik zostałby
+odrzucony przez urząd).
 
 ## Subskrypcja i okres próbny
 
@@ -101,7 +117,7 @@ potwierdzeniem).
 ## Testy
 
 ```bash
-npm test                      # 189 testów (wymaga uruchomionej bazy i serwera)
+npm test                      # 213 testów (wymaga uruchomionej bazy i serwera)
 npx vitest run tests/unit     # reguły: ceny, pieniądze, subskrypcja, zgody, paginacja
 npx vitest run tests/security # IDOR, role, webhooki, rate limiting — „brak dostępu = test zaliczony”
 ```
@@ -109,8 +125,10 @@ npx vitest run tests/security # IDOR, role, webhooki, rate limiting — „brak 
 Zakres: silnik cenowy i podatki, płatności i idempotencja webhooków, wysyłka faktur e-mailem,
 automatyzacje (kolejka, warunki, logi), opinie, analityka (agregaty SQL), paginacja, czas pracy,
 komunikacja (statusy dostarczenia), konto klienta, zaproszenia do zespołu, kolejka offline
-(idempotencja syncu), KSeF, AI (silnik regułowy), izolacja danych, uprawnienia ról,
-wydajność przy 2000 dokumentach oraz renderowanie każdej strony (HTTP).
+(notatki, zdjęcia, status, checklista, czas pracy — idempotencja `clientId`), 2FA (TOTP,
+kody zapasowe, blokada sesji), eksport JPK_FA (sumy, wykluczenia), KSeF, AI (silnik
+regułowy), izolacja danych, uprawnienia ról, wydajność przy 2000 dokumentach oraz
+renderowanie każdej strony (HTTP).
 
 Instrukcja uruchomienia na prawdziwych kluczach (Stripe, Resend, KSeF, AI, cron) oraz
 checklista przedprodukcyjna: [`WDROZENIE.md`](./WDROZENIE.md).

@@ -19,7 +19,7 @@ const STORE = 'items';
 
 export type QueueItem = {
   clientId: string;
-  kind: 'note' | 'photo' | 'status' | 'checklist';
+  kind: 'note' | 'photo' | 'status' | 'checklist' | 'time';
   createdAt: number;
   label: string;
   payload: Record<string, unknown>;
@@ -96,8 +96,25 @@ export function OfflineQueue({ jobId }: { jobId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null);
+  const [pausedMs, setPausedMs] = useState(0);
+  const [pausedAt, setPausedAt] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const ready = useRef(false);
+
+  // licznik działa lokalnie — działa również bez sieci
+  useEffect(() => {
+    if (timerStartedAt === null) return;
+    const tick = () => {
+      const now = Date.now();
+      const pause = pausedMs + (pausedAt ? now - pausedAt : 0);
+      setElapsed(Math.max(0, Math.round((now - timerStartedAt - pause) / 1000)));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [timerStartedAt, pausedMs, pausedAt]);
 
   const refresh = useCallback(async () => {
     try {
@@ -260,6 +277,60 @@ export function OfflineQueue({ jobId }: { jobId: string }) {
           <button type="button" onClick={addNote} className="btn-secondary text-sm">
             Dodaj
           </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {timerStartedAt === null ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTimerStartedAt(Date.now());
+                setPausedMs(0);
+                setPausedAt(null);
+              }}
+              className="btn-secondary text-sm"
+            >
+              ▶ Start pracy (offline)
+            </button>
+          ) : (
+            <>
+              <span className="text-sm font-medium text-ink-900 tabular-nums">
+                {String(Math.floor(elapsed / 3600)).padStart(2, '0')}:
+                {String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0')}:
+                {String(elapsed % 60).padStart(2, '0')}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPausedAt(pausedAt ? null : Date.now())}
+                className="btn-secondary text-sm"
+              >
+                {pausedAt ? 'Wznów' : 'Pauza'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = Date.now();
+                  const pause = pausedMs + (pausedAt ? now - pausedAt : 0);
+                  void enqueue({
+                    kind: 'time',
+                    label: `Czas pracy: ${Math.round((now - timerStartedAt - pause) / 1000)} s`,
+                    payload: {
+                      startedAt: new Date(timerStartedAt).toISOString(),
+                      endedAt: new Date(now).toISOString(),
+                      pausedMs: pause,
+                    },
+                  });
+                  setTimerStartedAt(null);
+                  setPausedMs(0);
+                  setPausedAt(null);
+                  setElapsed(0);
+                }}
+                className="btn-primary text-sm"
+              >
+                Zapisz czas
+              </button>
+            </>
+          )}
         </div>
 
         <input
