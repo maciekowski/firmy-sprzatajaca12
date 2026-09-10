@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { requirePermissionOrThrow } from '@/lib/auth/guards';
 import { changeLeadStatus, convertLeadToCustomer, createLead, deleteLead, updateLead } from '@/lib/services/leads';
 import type { Lead } from '@/lib/db/schema';
+import { enqueueAutomations } from '@/lib/automation/engine';
 
 function parse(formData: FormData) {
   const followUpAtRaw = String(formData.get('followUpAt') ?? '').trim();
@@ -36,6 +37,8 @@ export async function createLeadAction(_prev: LeadFormState, formData: FormData)
 
   const result = await createLead(ctx, parse(formData));
   if (!result.ok) return { ok: false, error: result.error };
+
+  await enqueueAutomations({ organizationId: context.organization.id, trigger: 'LEAD_CREATED', targetType: 'lead', targetId: result.lead.id });
 
   revalidatePath('/leady');
   redirect(`/leady/${result.lead.id}`);

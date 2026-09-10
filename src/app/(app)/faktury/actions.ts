@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requirePermissionOrThrow } from '@/lib/auth/guards';
-import { cancelInvoice, createInvoice, createInvoiceFromJob, markInvoiceSent, recordPayment } from '@/lib/services/invoices';
+import { cancelInvoice, createInvoice, createInvoiceFromJob, getInvoice, markInvoiceSent, recordPayment } from '@/lib/services/invoices';
 import { enqueueAutomations } from '@/lib/automation/engine';
+import { createInvoiceCheckoutSession } from '@/lib/billing/stripe';
 
 const PAYMENT_METHODS = new Set(['CASH', 'BANK_TRANSFER', 'CARD', 'STRIPE', 'OTHER']);
 
@@ -15,6 +16,8 @@ export async function createInvoiceFromJobAction(formData: FormData): Promise<vo
 
   const result = await createInvoiceFromJob(ctx, jobId);
   if (!result.ok) redirect(`/faktury?blad=${encodeURIComponent(result.error)}`);
+
+  await enqueueAutomations({ organizationId: context.organization.id, trigger: 'INVOICE_CREATED', targetType: 'invoice', targetId: result.data!.id });
 
   revalidatePath('/faktury');
   redirect(`/faktury/${result.data!.id}`);
@@ -55,6 +58,8 @@ export async function createInvoiceAction(formData: FormData): Promise<void> {
 
   if (!result.ok) redirect(`/faktury/nowa?blad=${encodeURIComponent(result.error)}`);
 
+  await enqueueAutomations({ organizationId: context.organization.id, trigger: 'INVOICE_CREATED', targetType: 'invoice', targetId: result.data!.id });
+
   revalidatePath('/faktury');
   redirect(`/faktury/${result.data!.id}`);
 }
@@ -92,7 +97,7 @@ export async function recordPaymentAction(formData: FormData): Promise<void> {
   if (!result.ok) redirect(`/faktury/${invoiceId}?blad=${encodeURIComponent(result.error)}`);
 
   if (result.data?.status === 'PAID') {
-    await enqueueAutomations({ organizationId: context.organization.id, trigger: 'INVOICE_PAID', targetType: 'invoice', targetId: invoiceId });
+    await enqueueAutomations({ organizationId: context.organization.id, trigger: 'PAYMENT_RECEIVED', targetType: 'invoice', targetId: invoiceId });
   }
 
   revalidatePath(`/faktury/${invoiceId}`);
@@ -108,4 +113,41 @@ export async function cancelInvoiceAction(formData: FormData): Promise<void> {
   const result = await cancelInvoice(ctx, invoiceId);
   revalidatePath(`/faktury/${invoiceId}`);
   redirect(result.ok ? `/faktury/${invoiceId}?wynik=anulowano` : `/faktury/${invoiceId}?blad=${encodeURIComponent(result.error)}`);
+}
+
+/**
+ * Płatność kartą — tworzy PRAWDZIWĄ sesję płatności w Stripe i przekierowuje
+ * klienta na stronę Stripe. Księgowanie następuje wyłącznie po podpisanym
+ * webhooku (patrz /api/webhooks/stripe) — powrót z przeglądarki nic nie zmienia.
+ *
+ * Bez kluczy API akcja kończy się błędem (NIE symulujemy płatności).
+ */
+export async function payInvoiceByCardAction(formData: FormData): Promise<void> {
+  const context = await requirePermissionOrThrow('invoice:write');
+  const invoiceId = String(formData.get('invoiceId') ?? '');
+
+  const invoice = await getInvoice(context.organization.id, invoiceId);
+  if (!invoice) redirect('/faktury?blad=Nie%20znaleziono%20faktury');
+
+  const remaining = invoice.totalCents - invoice.paidCents;
+  if (invoice.status === 'CANCELLED' || remaining <= 0) {
+    redirect(`/faktury/${invoiceId}?blad=${encodeURIComponent('Faktura nie wymaga płatności.')}`);
+  }
+
+  const base = (process.env.APP_URL ?? '').replace(/\/$/, '') || '';
+  const result = await createInvoiceCheckoutSession({
+    organizationId: context.organization.id,
+    invoiceId,
+    invoiceNumber: invoice.number,
+    amountCents: remaining,
+    currency: context.organization.currency,
+    successUrl: `${base}/faktury/${invoiceId}?platnosc=oczekuje`,
+    cancelUrl: `${base}/faktury/${invoiceId}?platnosc=anulowana`,
+  });
+
+  if (!result.ok) {
+    redirect(`/faktury/${invoiceId}?blad=${encodeURIComponent(result.error)}`);
+  }
+
+  redirect(result.url);
 }

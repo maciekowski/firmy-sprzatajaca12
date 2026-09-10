@@ -6,6 +6,8 @@ import { requirePermissionOrThrow } from '@/lib/auth/guards';
 import { analyzeRequest, createRequest, getRequest, updateRequestStatus } from '@/lib/services/requests';
 import { createLead } from '@/lib/services/leads';
 import { listServicesWithTiers } from '@/lib/data/services';
+import { enqueueAutomations } from '@/lib/automation/engine';
+import { rateLimit } from '@/lib/rate-limit';
 
 export type RequestFormState = { ok: boolean; error?: string; message?: string };
 
@@ -33,6 +35,8 @@ export async function createRequestAction(_prev: RequestFormState, formData: For
 
   if (!result.ok) return { ok: false, error: result.error };
 
+  await enqueueAutomations({ organizationId: context.organization.id, trigger: 'REQUEST_CREATED', targetType: 'request', targetId: result.request.id });
+
   revalidatePath('/zapytania');
   redirect(`/zapytania/${result.request.id}`);
 }
@@ -42,6 +46,9 @@ export async function analyzeRequestAction(formData: FormData): Promise<void> {
   const context = await requirePermissionOrThrow('request:write');
   const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const requestId = String(formData.get('requestId') ?? '');
+
+  const limit = rateLimit(`ai-parse:${context.organization.id}`, 20, 60_000);
+  if (!limit.allowed) redirect(`/zapytania/${requestId}?blad=${encodeURIComponent(`Zbyt wiele analiz. Spróbuj ponownie za ${limit.retryAfterSeconds} s.`)}`);
 
   const services = await listServicesWithTiers(context.organization.id, true);
   await analyzeRequest(ctx, requestId, services.map((service) => service.name));

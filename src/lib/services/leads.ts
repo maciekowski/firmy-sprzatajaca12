@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
 import { activities, customers, leads, users, type Lead } from '@/lib/db/schema';
 import { writeAuditLog } from '@/lib/audit';
@@ -23,8 +23,8 @@ export type LeadDraft = {
 
 export const LEAD_STATUS_ORDER = ['NEW', 'CONTACTED', 'QUALIFIED', 'ESTIMATE', 'QUOTE_SENT', 'FOLLOW_UP', 'WON', 'LOST'] as const;
 
-export async function listLeads(organizationId: string, options: { status?: string; search?: string } = {}) {
-  const filters = [eq(leads.organizationId, organizationId)];
+function buildLeadFilters(organizationId: string, options: { status?: string; search?: string } = {}) {
+  const filters: SQL[] = [eq(leads.organizationId, organizationId)];
   if (options.status && options.status !== 'ALL') filters.push(eq(leads.status, options.status as never));
   if (options.search) {
     const term = `%${options.search}%`;
@@ -32,6 +32,14 @@ export async function listLeads(organizationId: string, options: { status?: stri
       sql`(${leads.title} ilike ${term} or coalesce(${leads.contactName}, '') ilike ${term} or coalesce(${leads.contactEmail}, '') ilike ${term} or coalesce(${leads.contactPhone}, '') ilike ${term})`,
     );
   }
+  return filters;
+}
+
+export async function listLeads(
+  organizationId: string,
+  options: { status?: string; search?: string; limit?: number; offset?: number } = {},
+) {
+  const filters = buildLeadFilters(organizationId, options);
 
   return db
     .select({
@@ -42,7 +50,16 @@ export async function listLeads(organizationId: string, options: { status?: stri
     .from(leads)
     .leftJoin(users, eq(users.id, leads.assignedToId))
     .where(and(...filters))
-    .orderBy(desc(leads.createdAt));
+    .orderBy(desc(leads.createdAt))
+    .limit(options.limit ?? 100)
+    .offset(options.offset ?? 0);
+}
+
+/** Liczba leadów dla zadanych filtrów — potrzebna do paginacji. */
+export async function countLeads(organizationId: string, options: { status?: string; search?: string } = {}): Promise<number> {
+  const filters = buildLeadFilters(organizationId, options);
+  const [{ value }] = await db.select({ value: sql<number>`count(*)::int` }).from(leads).where(and(...filters));
+  return Number(value ?? 0);
 }
 
 export async function getLead(organizationId: string, leadId: string) {

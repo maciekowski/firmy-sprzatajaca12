@@ -1,7 +1,7 @@
 /**
  * Usługi domenowe: zlecenia, checklisty, zdjęcia, notatki, czas pracy.
  */
-import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
 import {
   activities,
@@ -191,11 +191,11 @@ export async function createJob(ctx: ServiceContext, draft: JobDraft): Promise<O
 // Odczyt
 // ---------------------------------------------------------------------------
 
-export async function listJobs(
+async function buildJobFilters(
   organizationId: string,
-  options: { status?: string; today?: boolean; crewId?: string; userId?: string; limit?: number } = {},
-) {
-  const filters = [eq(jobs.organizationId, organizationId)];
+  options: { status?: string; today?: boolean; crewId?: string; userId?: string },
+): Promise<SQL[]> {
+  const filters: SQL[] = [eq(jobs.organizationId, organizationId)];
   if (options.status && options.status !== 'ALL') filters.push(eq(jobs.status, options.status as never));
   if (options.crewId) filters.push(eq(jobs.crewId, options.crewId));
   if (options.today) {
@@ -210,9 +210,18 @@ export async function listJobs(
       .from(jobAssignments)
       .where(eq(jobAssignments.userId, options.userId));
     const ids = assigned.map((row) => row.jobId);
-    if (ids.length === 0) return [];
+    if (ids.length === 0) return [sql`false`];
     filters.push(sql`${jobs.id} = any(${ids})`);
   }
+
+  return filters;
+}
+
+export async function listJobs(
+  organizationId: string,
+  options: { status?: string; today?: boolean; crewId?: string; userId?: string; limit?: number; offset?: number } = {},
+) {
+  const filters = await buildJobFilters(organizationId, options);
 
   return db
     .select({
@@ -227,7 +236,18 @@ export async function listJobs(
     .where(and(...filters))
     .orderBy(asc(jobs.scheduledStart), desc(jobs.createdAt))
     .limit(options.limit ?? 200)
+    .offset(options.offset ?? 0)
     .then((rows) => rows.map((row) => ({ ...row.job, customerName: row.customerName, crewName: row.crewName, crewColor: row.crewColor })));
+}
+
+/** Liczba zleceń dla zadanych filtrów — potrzebna do paginacji. */
+export async function countJobs(
+  organizationId: string,
+  options: { status?: string; today?: boolean; crewId?: string; userId?: string } = {},
+): Promise<number> {
+  const filters = await buildJobFilters(organizationId, options);
+  const [{ value }] = await db.select({ value: sql<number>`count(*)::int` }).from(jobs).where(and(...filters));
+  return Number(value ?? 0);
 }
 
 export async function getJob(organizationId: string, jobId: string) {

@@ -4,7 +4,7 @@
  * To jedyne miejsce, w którym zapisywane są wyliczone kwoty.
  * Wszystkie obliczenia delegujemy do silnika cenowego (@/lib/pricing/engine).
  */
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql} from 'drizzle-orm';
 import { db } from '@/lib/db/client';
 import {
   activities,
@@ -150,7 +150,7 @@ export async function previewPricing(organizationId: string, draft: DocumentDraf
   return computeDocumentPricing(input);
 }
 
-export async function listEstimates(organizationId: string, limit = 100) {
+export async function listEstimates(organizationId: string, limit = 100, offset = 0) {
   return db
     .select({ estimate: estimates, customerName: customers.displayName })
     .from(estimates)
@@ -158,7 +158,17 @@ export async function listEstimates(organizationId: string, limit = 100) {
     .where(eq(estimates.organizationId, organizationId))
     .orderBy(asc(estimates.createdAt))
     .limit(limit)
+    .offset(offset)
     .then((rows) => rows.map((row) => ({ ...row.estimate, customerName: row.customerName })));
+}
+
+/** Liczba wycen organizacji — potrzebna do paginacji. */
+export async function countEstimates(organizationId: string): Promise<number> {
+  const [{ value }] = await db
+    .select({ value: sql<number>`count(*)::int` })
+    .from(estimates)
+    .where(eq(estimates.organizationId, organizationId));
+  return Number(value ?? 0);
 }
 
 export async function getEstimate(organizationId: string, estimateId: string) {
@@ -449,19 +459,35 @@ export async function getQuoteEvents(quoteId: string) {
   return db.select().from(quoteEvents).where(eq(quoteEvents.quoteId, quoteId)).orderBy(asc(quoteEvents.createdAt));
 }
 
-export async function listQuotes(organizationId: string, options: { status?: string } = {}) {
+function buildQuoteFilters(organizationId: string, options: { status?: string } = {}) {
   const filters = [eq(quotes.organizationId, organizationId)];
   if (options.status && options.status !== 'ALL') {
     filters.push(eq(quotes.status, options.status as never));
   }
+  return filters;
+}
+
+export async function listQuotes(
+  organizationId: string,
+  options: { status?: string; limit?: number; offset?: number } = {},
+) {
+  const filters = buildQuoteFilters(organizationId, options);
   return db
     .select({ quote: quotes, customerName: customers.displayName })
     .from(quotes)
     .innerJoin(customers, eq(customers.id, quotes.customerId))
     .where(and(...filters))
     .orderBy(asc(quotes.createdAt))
-    .limit(200)
+    .limit(options.limit ?? 200)
+    .offset(options.offset ?? 0)
     .then((rows) => rows.map((row) => ({ ...row.quote, customerName: row.customerName })));
+}
+
+/** Liczba ofert dla zadanych filtrów — potrzebna do paginacji. */
+export async function countQuotes(organizationId: string, options: { status?: string } = {}): Promise<number> {
+  const filters = buildQuoteFilters(organizationId, options);
+  const [{ value }] = await db.select({ value: sql<number>`count(*)::int` }).from(quotes).where(and(...filters));
+  return Number(value ?? 0);
 }
 
 /** Oznacza ofertę jako wyświetloną (portal klienta). */

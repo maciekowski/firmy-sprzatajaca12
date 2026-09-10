@@ -7,12 +7,21 @@ import { organizations } from '@/lib/db/schema';
 import { getInvoiceByToken, getInvoiceItems, getInvoicePayments } from '@/lib/services/invoices';
 import { formatMoney } from '@/lib/money';
 import { formatDate, PAYMENT_METHODS } from '@/lib/constants';
+import { stripeStatus } from '@/lib/billing/stripe';
+import { PayButton } from '@/components/payments/pay-button';
 
 export const metadata = { title: 'Faktura', robots: { index: false, follow: false } };
 
 /** Portal klienta: podgląd faktury na podstawie tokenu z linku (bez logowania). */
-export default async function PublicInvoicePage({ params }: { params: Promise<{ token: string }> }) {
+export default async function PublicInvoicePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ platnosc?: string }>;
+}) {
   const { token } = await params;
+  const { platnosc } = await searchParams;
   const invoice = await getInvoiceByToken(token);
   if (!invoice) notFound();
 
@@ -25,7 +34,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
   const organization = orgRows[0];
   const currency = organization?.currency ?? 'PLN';
   const remaining = invoice.totalCents - invoice.paidCents;
-  const stripeEnabled = Boolean(process.env.STRIPE_SECRET_KEY);
+  const stripe = stripeStatus();
 
   return (
     <div className="min-h-screen bg-ink-50">
@@ -145,23 +154,32 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
           <h2 className="section-title">Płatność</h2>
           {remaining <= 0 ? (
             <p className="mt-1 text-sm text-emerald-700">Faktura jest opłacona w całości. Dziękujemy!</p>
-          ) : stripeEnabled ? (
+          ) : stripe.configured ? (
             <p className="mt-1 text-sm text-ink-700">
-              Płatność kartą jest dostępna po kliknięciu przycisku — obsługuje ją Stripe, a status faktury zmienia się po
-              potwierdzeniu płatności po stronie serwera.
+              Płatność kartą obsługuje Stripe. Po kliknięciu zostaniesz przekierowany na stronę płatności — faktura
+              zostanie oznaczona jako opłacona dopiero po potwierdzeniu z serwera Stripe.
             </p>
           ) : (
             <p className="mt-1 text-sm text-ink-700">
               Płać przelewem na numer konta wskazany przez wykonawcę. <strong>Płatność online nie jest aktywna</strong> —
-              brak skonfigurowanej bramki płatności (system nie udaje płatności).
+              bramka płatności nie jest jeszcze skonfigurowana (system nie udaje płatności).
             </p>
           )}
 
+          {platnosc === 'oczekuje' ? (
+            <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+              Otwarto sesję płatności. Faktura zostanie oznaczona jako opłacona po potwierdzeniu z serwera Stripe.
+            </p>
+          ) : null}
+          {platnosc === 'anulowana' ? (
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Płatność została przerwana — faktura pozostaje nieopłacona.
+            </p>
+          ) : null}
+
           <div className="mt-4 flex flex-wrap gap-3">
-            {stripeEnabled && remaining > 0 ? (
-              <span className="btn-primary inline-flex items-center gap-2 opacity-60" aria-disabled="true">
-                <CreditCard className="h-4 w-4" /> Zapłać kartą (wymaga konfiguracji)
-              </span>
+            {stripe.configured && remaining > 0 ? (
+              <PayButton token={token} amountLabel={formatMoney(remaining, currency)} />
             ) : null}
             <a href={`/api/faktury/${invoice.id}/pdf`} className="btn-secondary inline-flex items-center gap-2" target="_blank" rel="noreferrer">
               <Download className="h-4 w-4" /> Pobierz PDF

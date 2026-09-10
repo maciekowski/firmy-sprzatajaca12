@@ -8,6 +8,7 @@ import { AddAddressForm, AddContactForm, CustomerForm } from '@/components/custo
 import { formatMoney } from '@/lib/money';
 import { formatDate, formatDateTime } from '@/lib/constants';
 import { INVOICE_STATUS_TONES, JOB_STATUS_TONES, QUOTE_STATUS_TONES } from '@/lib/constants';
+import { CustomerPreferencesForm } from '@/components/customers/preferences-form';
 
 export const metadata = { title: 'Klient' };
 
@@ -229,12 +230,35 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
       </div>
 
       {context.can('customer:write') ? (
-        <Card className="mt-6">
-          <CardHeader title="Edycja danych" description="Zmiany zapisujesz tym samym formularzem, którego użyłeś przy dodawaniu klienta." />
-          <CardBody>
-            <CustomerForm customer={customer} />
-          </CardBody>
-        </Card>
+        <>
+          <Card className="mt-6">
+            <CardHeader
+              title="Preferencje wiadomości"
+              description="Zgody są rozpatrywane osobno dla kanału i kategorii. Wiadomości marketingowe są domyślnie wyłączone — wymagają wyraźnej zgody klienta."
+            />
+            <CardBody>
+              <CustomerPreferencesForm
+                customerId={customer.id}
+                preferences={{
+                  emailOptIn: customer.emailOptIn,
+                  smsOptIn: customer.smsOptIn,
+                  emailTransactionalOptIn: customer.emailTransactionalOptIn,
+                  emailSystemOptIn: customer.emailSystemOptIn,
+                  emailAutomationOptIn: customer.emailAutomationOptIn,
+                  emailMarketingOptIn: customer.emailMarketingOptIn,
+                  consentBasis: customer.consentBasis,
+                }}
+              />
+            </CardBody>
+          </Card>
+
+          <Card className="mt-6">
+            <CardHeader title="Edycja danych" description="Zmiany zapisujesz tym samym formularzem, którego użyłeś przy dodawaniu klienta." />
+            <CardBody>
+              <CustomerForm customer={customer} />
+            </CardBody>
+          </Card>
+        </>
       ) : null}
     </>
   );

@@ -289,8 +289,13 @@ async function executeAction(automation: Automation, run: AutomationRun): Promis
         quoteId: run.targetType === 'quote' ? run.targetId : null,
         jobId: run.targetType === 'job' ? run.targetId : null,
         invoiceId: run.targetType === 'invoice' ? run.targetId : null,
+        category: 'AUTOMATION',
         emailOptIn: target.emailOptIn,
         smsOptIn: target.smsOptIn,
+        transactionalOptIn: target.emailTransactionalOptIn,
+        systemOptIn: target.emailSystemOptIn,
+        automationOptIn: target.emailAutomationOptIn,
+        marketingOptIn: target.emailMarketingOptIn,
       });
 
       if (result.delivered) {
@@ -336,7 +341,12 @@ async function executeAction(automation: Automation, run: AutomationRun): Promis
           templateKey: 'review_request',
           variables: target.variables,
           customerId: target.customerId,
+          category: 'AUTOMATION',
           emailOptIn: target.emailOptIn,
+          transactionalOptIn: target.emailTransactionalOptIn,
+          systemOptIn: target.emailSystemOptIn,
+          automationOptIn: target.emailAutomationOptIn,
+          marketingOptIn: target.emailMarketingOptIn,
         });
       }
 
@@ -367,6 +377,10 @@ type Recipient = {
   emailOptIn: boolean | null;
   smsOptIn: boolean | null;
   variables: Record<string, string | number | null | undefined>;
+  emailTransactionalOptIn?: boolean | null;
+  emailSystemOptIn?: boolean | null;
+  emailAutomationOptIn?: boolean | null;
+  emailMarketingOptIn?: boolean | null;
 };
 
 async function resolveRecipient(run: AutomationRun): Promise<Recipient | null> {
@@ -394,6 +408,10 @@ async function resolveRecipient(run: AutomationRun): Promise<Recipient | null> {
       phone: row.customer.phone,
       emailOptIn: row.customer.emailOptIn,
       smsOptIn: row.customer.smsOptIn,
+      emailTransactionalOptIn: row.customer.emailTransactionalOptIn,
+      emailSystemOptIn: row.customer.emailSystemOptIn,
+      emailAutomationOptIn: row.customer.emailAutomationOptIn,
+      emailMarketingOptIn: row.customer.emailMarketingOptIn,
       variables: {
         klient: row.customer.displayName,
         numer: row.quote.number,
@@ -418,6 +436,10 @@ async function resolveRecipient(run: AutomationRun): Promise<Recipient | null> {
       phone: row.customer.phone,
       emailOptIn: row.customer.emailOptIn,
       smsOptIn: row.customer.smsOptIn,
+      emailTransactionalOptIn: row.customer.emailTransactionalOptIn,
+      emailSystemOptIn: row.customer.emailSystemOptIn,
+      emailAutomationOptIn: row.customer.emailAutomationOptIn,
+      emailMarketingOptIn: row.customer.emailMarketingOptIn,
       variables: {
         klient: row.customer.displayName,
         numer: row.invoice.number,
@@ -443,6 +465,10 @@ async function resolveRecipient(run: AutomationRun): Promise<Recipient | null> {
       phone: row.customer.phone,
       emailOptIn: row.customer.emailOptIn,
       smsOptIn: row.customer.smsOptIn,
+      emailTransactionalOptIn: row.customer.emailTransactionalOptIn,
+      emailSystemOptIn: row.customer.emailSystemOptIn,
+      emailAutomationOptIn: row.customer.emailAutomationOptIn,
+      emailMarketingOptIn: row.customer.emailMarketingOptIn,
       variables: {
         klient: row.customer.displayName,
         numer: row.job.number,

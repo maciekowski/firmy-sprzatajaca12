@@ -25,10 +25,9 @@ export type CustomerListItem = Customer & {
   unpaidInvoicesCount: number;
 };
 
-export async function listCustomers(
-  organizationId: string,
-  options: { search?: string; status?: string; tag?: string; limit?: number } = {},
-): Promise<CustomerListItem[]> {
+type CustomerFilters = { search?: string; status?: string; tag?: string };
+
+function buildCustomerFilters(organizationId: string, options: CustomerFilters): SQL[] {
   const filters: SQL[] = [eq(customers.organizationId, organizationId)];
 
   if (options.search) {
@@ -49,6 +48,15 @@ export async function listCustomers(
     filters.push(sql`${options.tag} = any(${customers.tags})`);
   }
 
+  return filters;
+}
+
+export async function listCustomers(
+  organizationId: string,
+  options: CustomerFilters & { limit?: number; offset?: number } = {},
+): Promise<CustomerListItem[]> {
+  const filters = buildCustomerFilters(organizationId, options);
+
   const rows = await db
     .select({
       customer: customers,
@@ -61,7 +69,8 @@ export async function listCustomers(
     .from(customers)
     .where(and(...filters))
     .orderBy(desc(customers.createdAt))
-    .limit(options.limit ?? 200);
+    .limit(options.limit ?? 200)
+    .offset(options.offset ?? 0);
 
   return rows.map((row) => ({
     ...row.customer,
@@ -71,6 +80,16 @@ export async function listCustomers(
     unpaidInvoicesCents: Number(row.unpaidInvoicesCents ?? 0),
     unpaidInvoicesCount: Number(row.unpaidInvoicesCount ?? 0),
   }));
+}
+
+/** Liczba klientów dla zadanych filtrów — potrzebna do paginacji. */
+export async function countCustomers(organizationId: string, options: CustomerFilters = {}): Promise<number> {
+  const filters = buildCustomerFilters(organizationId, options);
+  const [{ value }] = await db
+    .select({ value: sql<number>`count(*)::int` })
+    .from(customers)
+    .where(and(...filters));
+  return Number(value ?? 0);
 }
 
 /** Pobranie klienta z kontrolą organizacji (zwraca null, gdy klient jest z innej firmy). */
@@ -141,10 +160,7 @@ export async function getCustomerTimeline(organizationId: string, customerId: st
   return { jobs: customerJobs, quotes: customerQuotes, invoices: customerInvoices, leads: customerLeads, estimates: customerEstimates };
 }
 
-export async function countCustomers(organizationId: string): Promise<number> {
-  const rows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(customers)
-    .where(eq(customers.organizationId, organizationId));
-  return Number(rows[0]?.count ?? 0);
+/** Liczba wszystkich klientów organizacji (bez filtrów). */
+export async function countAllCustomers(organizationId: string): Promise<number> {
+  return countCustomers(organizationId);
 }

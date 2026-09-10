@@ -84,8 +84,13 @@ export async function sendQuote(
       customerId: quote.customerId,
       quoteId: quote.id,
       userId: ctx.userId,
+      category: 'TRANSACTIONAL',
       emailOptIn: customer?.emailOptIn ?? true,
       smsOptIn: customer?.smsOptIn ?? false,
+      transactionalOptIn: customer?.emailTransactionalOptIn ?? true,
+      systemOptIn: customer?.emailSystemOptIn ?? true,
+      automationOptIn: customer?.emailAutomationOptIn ?? true,
+      marketingOptIn: customer?.emailMarketingOptIn ?? false,
     });
     if (!result.delivered) {
       deliveryNote = result.reason ?? 'Wiadomość nie została wysłana.';

@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
 import { organizations } from '@/lib/db/schema';
+import { headers } from 'next/headers';
+import { rateLimit } from '@/lib/rate-limit';
 import { getReviewRequestByToken, submitReview } from '@/lib/services/reviews';
 
 export const metadata = { title: 'Opinia', robots: { index: false, follow: false } };
@@ -26,6 +28,12 @@ export default async function ReviewPage({
 
   async function submit(formData: FormData) {
     'use server';
+    const forwarded = (await headers()).get('x-forwarded-for');
+    const ip = forwarded ? forwarded.split(',')[0]!.trim() : 'unknown';
+
+    const limit = rateLimit(`review:${ip}:${token}`, 10, 60_000);
+    if (!limit.allowed) redirect(`/o/${token}?blad=${encodeURIComponent(`Zbyt wiele prób. Spróbuj ponownie za ${limit.retryAfterSeconds} s.`)}`);
+
     const rating = Number(formData.get('rating') ?? 0);
     const comment = String(formData.get('comment') ?? '') || null;
     const result = await submitReview(token, { rating, comment });

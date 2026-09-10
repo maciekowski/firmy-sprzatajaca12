@@ -29,12 +29,30 @@ async function cookieFor(fixture: OrgFixture): Promise<string> {
   return `sf_session=${token}; sf_org=${fixture.organizationId}`;
 }
 
+/**
+ * Serwer deweloperski może się przeładować w trakcie testów (Next restartuje
+ * proces przy dużym zużyciu pamięci). Ponawiamy wyłącznie błędy SIECI,
+ * nigdy odpowiedzi serwera — wynik statusu pozostaje wiarygodny.
+ */
+async function fetchWithRetry(url: string, init?: RequestInit, attempts = 4): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  throw lastError;
+}
+
 async function get(path: string, cookie?: string) {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetchWithRetry(`${BASE_URL}${path}`, {
     headers: cookie ? { cookie } : {},
     redirect: 'manual',
   });
-  const body = response.status === 200 ? await response.text() : await response.text().catch(() => '');
+  const body = await response.text().catch(() => '');
   return { status: response.status, body, location: response.headers.get('location') };
 }
 
@@ -158,14 +176,14 @@ describe('strony aplikacji (HTTP)', () => {
     const quote = quotes.find((item) => item.estimateId === qualifiedEstimateId);
     expect(quote).toBeTruthy();
 
-    const response = await fetch(`${BASE_URL}/api/oferty/${quote!.id}/pdf`, { headers: { cookie: cookieA } });
+    const response = await fetchWithRetry(`${BASE_URL}/api/oferty/${quote!.id}/pdf`, { headers: { cookie: cookieA } });
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('application/pdf');
     const bytes = Buffer.from(await response.arrayBuffer());
     expect(bytes.subarray(0, 4).toString('latin1')).toBe('%PDF');
     expect(bytes.length).toBeGreaterThan(1000);
 
-    const foreign = await fetch(`${BASE_URL}/api/oferty/${quote!.id}/pdf`, { headers: { cookie: cookieB } });
+    const foreign = await fetchWithRetry(`${BASE_URL}/api/oferty/${quote!.id}/pdf`, { headers: { cookie: cookieB } });
     expect(foreign.status).toBe(404);
   });
 
@@ -185,7 +203,7 @@ describe('strony aplikacji (HTTP)', () => {
     const quotes = await listQuotes(orgA.organizationId);
     const quote = quotes.find((item) => item.estimateId === qualifiedEstimateId)!;
 
-    const response = await fetch(`${BASE_URL}/api/portal/${quote.publicToken}/decyzja`, {
+    const response = await fetchWithRetry(`${BASE_URL}/api/portal/${quote.publicToken}/decyzja`, {
       method: 'POST',
       body: new URLSearchParams({ decyzja: 'akceptuj', imie: 'Jan Kowalski', notatka: 'Pasuje termin' }),
       redirect: 'manual',
@@ -201,7 +219,7 @@ describe('strony aplikacji (HTTP)', () => {
     const quotes = await listQuotes(orgA.organizationId);
     const quote = quotes.find((item) => item.estimateId === qualifiedEstimateId)!;
 
-    const response = await fetch(`${BASE_URL}/api/portal/${quote.publicToken}/decyzja`, {
+    const response = await fetchWithRetry(`${BASE_URL}/api/portal/${quote.publicToken}/decyzja`, {
       method: 'POST',
       body: new URLSearchParams({ decyzja: 'akceptuj' }),
       redirect: 'manual',

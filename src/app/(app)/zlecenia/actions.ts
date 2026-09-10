@@ -84,6 +84,8 @@ export async function scheduleJobAction(formData: FormData): Promise<void> {
     backTo(jobId, { kolizja: conflicts.map((conflict) => conflict.number).join(', ') });
   }
 
+  await enqueueAutomations({ organizationId: context.organization.id, trigger: 'JOB_SCHEDULED', targetType: 'job', targetId: jobId });
+
   revalidatePath(`/zlecenia/${jobId}`);
   backTo(jobId, { wynik: 'zaplanowano' });
 }
@@ -101,6 +103,9 @@ export async function updateJobStatusAction(formData: FormData): Promise<void> {
 
   if (status === 'COMPLETED') {
     await enqueueAutomations({ organizationId: context.organization.id, trigger: 'JOB_COMPLETED', targetType: 'job', targetId: jobId });
+  }
+  if (status === 'NO_SHOW') {
+    await enqueueAutomations({ organizationId: context.organization.id, trigger: 'JOB_NO_SHOW', targetType: 'job', targetId: jobId });
   }
 
   revalidatePath(`/zlecenia/${jobId}`);

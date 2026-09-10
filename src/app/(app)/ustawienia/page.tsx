@@ -8,13 +8,24 @@ import { changeRoleAction } from '@/app/(app)/ustawienia/actions';
 import { SettingsForm, InviteMemberForm } from '@/components/settings/forms';
 import { ROLE_LABELS } from '@/lib/authz/permissions';
 import { formatDate } from '@/lib/constants';
+import { cancelRenewalAction, startSubscriptionAction } from '@/app/(app)/ustawienia/billing-actions';
+import { stripeStatus } from '@/lib/billing/stripe';
+import { evaluateSubscription } from '@/lib/billing/subscription';
 
 export const metadata = { title: 'Ustawienia' };
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams?: Promise<{ blad?: string; wynik?: string; platnosc?: string }> }) {
+  const params = (await searchParams) ?? {};
   const context = await requirePermission('org:manage');
   const members = await listOrganizationMembers(context.organization.id);
   const organization = context.organization;
+  const subscription = evaluateSubscription({
+    plan: organization.plan,
+    status: organization.subscriptionStatus,
+    trialEndsAt: organization.trialEndsAt ?? null,
+    subscriptionEndsAt: organization.subscriptionEndsAt ?? null,
+  });
+  const stripe = stripeStatus();
 
   return (
     <>
@@ -68,6 +79,78 @@ export default async function SettingsPage() {
         </div>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader
+              title={
+                <span className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" /> Subskrypcja
+                </span>
+              }
+              description="Status subskrypcji ustala serwer (okres próbny 10 dni, płatności przez Stripe)."
+            />
+            <CardBody className="space-y-3 text-sm">
+              {params.blad ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-900">{params.blad}</p>
+              ) : null}
+              {params.wynik === 'odnowienie-wylaczone' ? (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+                  Odnawianie subskrypcji zostało wyłączone w Stripe (dostęp do końca opłaconego okresu).
+                </p>
+              ) : null}
+              {params.platnosc === 'oczekuje' ? (
+                <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sky-900">
+                  Otwarto płatność w Stripe. Status subskrypcji zmieni się po potwierdzeniu z serwera Stripe (webhook).
+                </p>
+              ) : null}
+
+              <div className="flex justify-between">
+                <span className="text-ink-500">Plan</span>
+                <Badge tone={subscription.active ? 'success' : subscription.readOnly ? 'danger' : 'neutral'}>
+                  {subscription.plan}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-ink-500">Status</span>
+                <span className="text-ink-800">
+                  {subscription.active ? 'Aktywna' : subscription.trialing ? 'Okres próbny' : subscription.status}
+                </span>
+              </div>
+              {subscription.trialing && subscription.trialDaysLeft !== null ? (
+                <div className="flex justify-between">
+                  <span className="text-ink-500">Pozostało dni próby</span>
+                  <span className="tabular text-ink-800">{subscription.trialDaysLeft}</span>
+                </div>
+              ) : null}
+              {subscription.message ? (
+                <p className={`rounded-lg px-3 py-2 ${subscription.readOnly ? 'border border-red-200 bg-red-50 text-red-900' : 'border border-amber-200 bg-amber-50 text-amber-900'}`}>
+                  {subscription.message}
+                </p>
+              ) : null}
+
+              <p className="text-xs text-ink-500">
+                Stripe: {stripe.configured ? 'skonfigurowany' : 'nie jest jeszcze skonfigurowany'} — {stripe.detail}
+              </p>
+
+              {context.can('billing:manage') ? (
+                <div className="space-y-2 pt-1">
+                  <form action={startSubscriptionAction}>
+                    <input type="hidden" name="planId" value="PRO" />
+                    <SubmitButton variant="success">Aktywuj plan PRO</SubmitButton>
+                  </form>
+                  <form action={startSubscriptionAction}>
+                    <input type="hidden" name="planId" value="BUSINESS" />
+                    <SubmitButton>Aktywuj plan BUSINESS</SubmitButton>
+                  </form>
+                  {context.organization.stripeSubscriptionId ? (
+                    <form action={cancelRenewalAction}>
+                      <SubmitButton variant="secondary">Wyłącz odnawianie (na koniec okresu)</SubmitButton>
+                    </form>
+                  ) : null}
+                </div>
+              ) : null}
+            </CardBody>
+          </Card>
+
           <Card>
             <CardHeader
               title={

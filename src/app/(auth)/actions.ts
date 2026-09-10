@@ -13,6 +13,7 @@ import { writeAuditLog } from '@/lib/audit';
 import { emailProvider } from '@/lib/comms/email';
 import { seedDefaultAutomations, seedMessageTemplates } from '@/lib/org-defaults';
 import { forgotPasswordSchema, loginSchema, registerSchema, resetPasswordSchema, zodToFieldErrors, type FormState } from '@/lib/validation';
+import { trialEndsAtFrom } from '@/lib/billing/subscription';
 
 async function clientIp(): Promise<string> {
   const store = await headers();
@@ -96,7 +97,13 @@ export async function registerAction(_prev: FormState, formData: FormData): Prom
   const slug = await uniqueSlug(parsed.data.companyName);
   const [organization] = await db
     .insert(organizations)
-    .values({ name: parsed.data.companyName.trim(), slug })
+    .values({
+      name: parsed.data.companyName.trim(),
+      slug,
+      // Okres próbny ustala SERWER (10 dni) — frontend tego nie ustawia.
+      subscriptionStatus: 'TRIALING',
+      trialEndsAt: trialEndsAtFrom(),
+    })
     .returning();
 
   await db.insert(memberships).values({ organizationId: organization.id, userId: user.id, role: 'OWNER' });
@@ -166,6 +173,13 @@ export async function logoutAction(): Promise<void> {
 
 export async function forgotPasswordAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const ip = await clientIp();
+  const forgotEmail = String(formData.get('email') ?? '').toLowerCase();
+
+  const forgotLimit = rateLimit(authKey('forgot', forgotEmail, ip), 5, 10 * 60_000);
+  if (!forgotLimit.allowed) {
+    return { ok: false, error: `Zbyt wiele prób odzyskiwania hasła. Spróbuj ponownie za ${forgotLimit.retryAfterSeconds} s.` };
+  }
+
   const rawEmail = String(formData.get('email') ?? '').toLowerCase();
 
   const limit = rateLimit(authKey('forgot', rawEmail, ip), 5, 10 * 60_000);
@@ -223,6 +237,12 @@ export async function forgotPasswordAction(_prev: FormState, formData: FormData)
 
 export async function resetPasswordAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const ip = await clientIp();
+
+  const resetLimit = rateLimit(authKey('reset', String(formData.get('token') ?? ''), ip), 10, 10 * 60_000);
+  if (!resetLimit.allowed) {
+    return { ok: false, error: `Zbyt wiele prób ustawienia hasła. Spróbuj ponownie za ${resetLimit.retryAfterSeconds} s.` };
+  }
+
   const parsed = resetPasswordSchema.safeParse({
     token: formData.get('token'),
     password: formData.get('password'),

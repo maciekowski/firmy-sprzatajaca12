@@ -8,6 +8,7 @@ import { createEstimate, updateEstimate, deleteEstimate, type DocumentDraft } fr
 import { createQuoteFromEstimate } from '@/lib/services/estimates';
 import { sendQuote } from '@/lib/services/quotes';
 import { writeAuditLog } from '@/lib/audit';
+import { rateLimit } from '@/lib/rate-limit';
 
 const lineSchema = z.object({
   serviceId: z.string().nullish(),
@@ -153,6 +154,10 @@ export async function createQuoteAction(formData: FormData): Promise<void> {
 export async function sendQuoteAction(formData: FormData): Promise<void> {
   const context = await requirePermissionOrThrow('quote:send');
   const quoteId = String(formData.get('quoteId') ?? '');
+
+  // Wysyłka wiadomości — ograniczenie liczby żądań (ochrona przed nadużyciami).
+  const limit = rateLimit(`send-quote:${context.organization.id}`, 20, 60_000);
+  if (!limit.allowed) redirect(`/oferty/${quoteId}?blad=${encodeURIComponent(`Zbyt wiele wysyłek. Spróbuj ponownie za ${limit.retryAfterSeconds} s.`)}`);
   const result = await sendQuote(
     { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name },
     quoteId,

@@ -1,9 +1,11 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/guards';
-import { listRequests } from '@/lib/services/requests';
+import { countRequests, listRequests } from '@/lib/services/requests';
 import { Badge, ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui';
 import { formatDate, formatDateTime } from '@/lib/constants';
+import { Pagination } from '@/components/ui/pagination';
+import { parsePage, totalPages } from '@/lib/pagination';
 
 export const metadata = { title: 'Zapytania' };
 
@@ -35,10 +37,14 @@ const CHANNEL_LABELS: Record<string, string> = {
   OTHER: 'Inne',
 };
 
-export default async function RequestsPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string }> }) {
+export default async function RequestsPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; strona?: string }> }) {
   const context = await requirePermission('request:read');
-  const { status, q } = await searchParams;
-  const requests = await listRequests(context.organization.id, { status, search: q });
+  const { status, q, strona } = await searchParams;
+  const page = parsePage(strona);
+  const [requests, total] = await Promise.all([
+    listRequests(context.organization.id, { status, search: q, limit: page.limit, offset: page.offset }),
+    countRequests(context.organization.id, { status, search: q }),
+  ]);
 
   return (
     <>
@@ -129,6 +135,7 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
             </table>
           </div>
         )}
+        <Pagination page={page.page} pages={totalPages(total, page.limit)} basePath="/zapytania" query={{ status, q }} />
       </Card>
     </>
   );

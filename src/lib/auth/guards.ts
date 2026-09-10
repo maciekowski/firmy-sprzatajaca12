@@ -5,6 +5,7 @@ import { db } from '@/lib/db/client';
 import { memberships, organizations, type Organization, type Role, type User } from '@/lib/db/schema';
 import { can, type Permission } from '@/lib/authz/permissions';
 import { getActiveOrganizationId, getSessionUser } from './session';
+import { evaluateSubscription, readOnlyMessage } from '@/lib/billing/subscription';
 
 export type OrgContext = {
   user: User;
@@ -131,11 +132,28 @@ export async function requireOrgContextOrThrow(organizationId?: string | null): 
 export async function requirePermissionOrThrow(
   permission: Permission,
   organizationId?: string | null,
+  options: { allowWhenReadOnly?: boolean } = {},
 ): Promise<OrgContext> {
   const context = await requireOrgContextOrThrow(organizationId);
   if (!context.can(permission)) {
     throw new ForbiddenError(`Brak uprawnienia: ${permission}`);
   }
+
+  /**
+   * Subskrypcja jest sprawdzana SERWEREM: po zakończeniu okresu próbnego
+   * (10 dni) lub przy nieopłaconej subskrypcji zapisy są blokowane jawnie.
+   * Akcje płatnicze (billing:manage) mogą działać dalej, żeby dało się zapłacić.
+   */
+  const state = evaluateSubscription({
+    plan: context.organization.plan,
+    status: context.organization.subscriptionStatus,
+    trialEndsAt: context.organization.trialEndsAt ?? null,
+    subscriptionEndsAt: context.organization.subscriptionEndsAt ?? null,
+  });
+  if (state.readOnly && !options.allowWhenReadOnly && permission !== 'billing:manage') {
+    throw new ForbiddenError(readOnlyMessage(state));
+  }
+
   return context;
 }
 

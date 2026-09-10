@@ -450,6 +450,16 @@ export const customers = pgTable(
     status: customerStatusEnum('status').default('ACTIVE').notNull(),
     emailOptIn: boolean('email_opt_in').default(true).notNull(),
     smsOptIn: boolean('sms_opt_in').default(false).notNull(),
+    /**
+     * Preferencje wiadomości w podziale na kategorie (RODO / dobra praktyka):
+     *  - transakcyjne i systemowe wynikają z realizacji usługi,
+     *  - automatyczne (follow-upy, prośby o opinię) można wyłączyć,
+     *  - marketingowe są DOMYŚLNIE WYŁĄCZONE (wymagają wyraźnej zgody).
+     */
+    emailTransactionalOptIn: boolean('email_transactional_opt_in').default(true).notNull(),
+    emailSystemOptIn: boolean('email_system_opt_in').default(true).notNull(),
+    emailAutomationOptIn: boolean('email_automation_opt_in').default(true).notNull(),
+    emailMarketingOptIn: boolean('email_marketing_opt_in').default(false).notNull(),
     consentBasis: text('consent_basis'),
     consentNote: text('consent_note'),
     createdAt: createdAt(),

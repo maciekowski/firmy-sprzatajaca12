@@ -1,21 +1,27 @@
 import Link from 'next/link';
 import { Plus, Search } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/guards';
-import { listCustomers } from '@/lib/data/customers';
+import { countCustomers, listCustomers } from '@/lib/data/customers';
 import { Badge, ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui';
 import { formatMoney } from '@/lib/money';
 import { formatDate } from '@/lib/constants';
+import { Pagination } from '@/components/ui/pagination';
+import { parsePage, totalPages } from '@/lib/pagination';
 
 export const metadata = { title: 'Klienci' };
 
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; strona?: string }>;
 }) {
   const context = await requirePermission('customer:read');
-  const { q, status } = await searchParams;
-  const customers = await listCustomers(context.organization.id, { search: q, status });
+  const { q, status, strona } = await searchParams;
+  const page = parsePage(strona);
+  const [customers, total] = await Promise.all([
+    listCustomers(context.organization.id, { search: q, status, limit: page.limit, offset: page.offset }),
+    countCustomers(context.organization.id, { search: q, status }),
+  ]);
 
   return (
     <>
@@ -146,6 +152,7 @@ export default async function CustomersPage({
             </table>
           </div>
         )}
+        <Pagination page={page.page} pages={totalPages(total, page.limit)} basePath="/klienci" query={{ q, status }} />
       </Card>
     </>
   );

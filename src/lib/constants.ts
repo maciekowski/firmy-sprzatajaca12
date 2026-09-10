@@ -252,3 +252,6 @@ export function formatTime(value: Date | string | null | undefined): string {
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
 }
+
+/** Długość okresu próbnego nowej firmy (dni). */
+export const TRIAL_DAYS = 10;

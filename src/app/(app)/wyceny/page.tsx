@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/guards';
-import { listEstimates } from '@/lib/services/estimates';
+import { countEstimates, listEstimates } from '@/lib/services/estimates';
 import { Badge, ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui';
 import { formatMoney } from '@/lib/money';
 import { formatDate } from '@/lib/constants';
+import { Pagination } from '@/components/ui/pagination';
+import { parsePage, totalPages } from '@/lib/pagination';
 
 export const metadata = { title: 'Wyceny' };
 
@@ -24,9 +26,13 @@ const STATUS_TONES: Record<string, 'neutral' | 'info' | 'success' | 'warning' | 
   EXPIRED: 'warning',
 };
 
-export default async function EstimatesPage() {
+export default async function EstimatesPage({ searchParams }: { searchParams?: Promise<{ strona?: string }> }) {
   const context = await requirePermission('estimate:read');
-  const estimates = await listEstimates(context.organization.id);
+  const page = parsePage((await searchParams)?.strona);
+  const [estimates, total] = await Promise.all([
+    listEstimates(context.organization.id, page.limit, page.offset),
+    countEstimates(context.organization.id),
+  ]);
 
   return (
     <>
@@ -89,6 +95,7 @@ export default async function EstimatesPage() {
             </table>
           </div>
         )}
+        <Pagination page={page.page} pages={totalPages(total, page.limit)} basePath="/wyceny" />
       </Card>
     </>
   );

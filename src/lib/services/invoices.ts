@@ -17,6 +17,8 @@ import {
 } from '@/lib/db/schema';
 import { nextDocumentNumber } from '@/lib/numbering';
 import { newId } from '@/lib/db/schema';
+import { writeAuditLog } from '@/lib/audit';
+import { enqueueAutomations } from '@/lib/automation/engine';
 import type { ServiceContext, OperationResult } from './jobs';
 
 export type InvoiceDraft = {
@@ -160,9 +162,17 @@ export async function createInvoiceFromJob(ctx: ServiceContext, jobId: string): 
   });
 }
 
-export async function listInvoices(organizationId: string, options: { status?: string } = {}) {
+export function buildInvoiceFilters(organizationId: string, options: { status?: string } = {}) {
   const filters = [eq(invoices.organizationId, organizationId)];
   if (options.status && options.status !== 'ALL') filters.push(eq(invoices.status, options.status as never));
+  return filters;
+}
+
+export async function listInvoices(
+  organizationId: string,
+  options: { status?: string; limit?: number; offset?: number } = {},
+) {
+  const filters = buildInvoiceFilters(organizationId, options);
 
   return db
     .select({ invoice: invoices, customerName: customers.displayName })
@@ -170,8 +180,16 @@ export async function listInvoices(organizationId: string, options: { status?: s
     .innerJoin(customers, eq(customers.id, invoices.customerId))
     .where(and(...filters))
     .orderBy(desc(invoices.createdAt))
-    .limit(200)
+    .limit(options.limit ?? 200)
+    .offset(options.offset ?? 0)
     .then((rows) => rows.map((row) => ({ ...row.invoice, customerName: row.customerName })));
+}
+
+/** Liczba faktur dla zadanych filtrów — potrzebna do paginacji. */
+export async function countInvoices(organizationId: string, options: { status?: string } = {}): Promise<number> {
+  const filters = buildInvoiceFilters(organizationId, options);
+  const [{ value }] = await db.select({ value: sql<number>`count(*)::int` }).from(invoices).where(and(...filters));
+  return Number(value ?? 0);
 }
 
 export async function getInvoice(organizationId: string, invoiceId: string) {
@@ -325,4 +343,102 @@ export async function getInvoiceSummary(organizationId: string) {
     overdueCents: Number(row?.overdue ?? 0),
     overdueCount: Number(row?.overdue_count ?? 0),
   };
+}
+
+/**
+ * Księgowanie płatności z webhooka Stripe.
+ *
+ * Zasady:
+ *  - wywoływane WYŁĄCZNIE po zweryfikowaniu podpisu webhooka (patrz /api/webhooks/stripe),
+ *  - idempotentne: to samo payment_intent nie zostanie zaksięgowane dwa razy,
+ *  - nie nadpisujemy kwoty faktury — księgujemy najwyżej pozostałą należność,
+ *  - brak użytkownika (system/provider) jest jawnie oznaczony w logu audytowym.
+ */
+export type StripePaymentResult =
+  | { ok: true; duplicate: boolean; invoice: Invoice }
+  | { ok: false; error: string };
+
+export async function recordStripePayment(input: {
+  organizationId: string;
+  invoiceId: string;
+  amountCents: number;
+  stripePaymentIntentId: string;
+  sessionId?: string | null;
+  paidAt?: Date;
+}): Promise<StripePaymentResult> {
+  const invoice = await getInvoice(input.organizationId, input.invoiceId);
+  if (!invoice) return { ok: false, error: 'Nie znaleziono faktury.' };
+  if (invoice.status === 'CANCELLED') return { ok: false, error: 'Faktura została anulowana.' };
+
+  const [existing] = await db
+    .select()
+    .from(payments)
+    .where(and(eq(payments.organizationId, input.organizationId), eq(payments.stripePaymentIntentId, input.stripePaymentIntentId)))
+    .limit(1);
+
+  if (existing) return { ok: true, duplicate: true, invoice };
+
+  const remaining = invoice.totalCents - invoice.paidCents;
+  if (remaining <= 0) return { ok: true, duplicate: true, invoice };
+
+  const amountCents = Math.min(input.amountCents, remaining);
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    return { ok: false, error: 'Kwota płatności z Stripe jest nieprawidłowa.' };
+  }
+
+  await db.insert(payments).values({
+    organizationId: input.organizationId,
+    invoiceId: invoice.id,
+    amountCents,
+    method: 'STRIPE',
+    paidAt: input.paidAt ?? new Date(),
+    reference: input.stripePaymentIntentId,
+    note: input.sessionId ? `Stripe — sesja ${input.sessionId}` : 'Stripe — płatność online',
+    recordedById: null,
+    stripePaymentIntentId: input.stripePaymentIntentId,
+  });
+
+  const paidCents = invoice.paidCents + amountCents;
+  const status: Invoice['status'] = paidCents >= invoice.totalCents ? 'PAID' : 'PARTIALLY_PAID';
+
+  const [updated] = await db
+    .update(invoices)
+    .set({
+      paidCents,
+      status,
+      paidAt: status === 'PAID' ? (input.paidAt ?? new Date()) : null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(invoices.id, invoice.id), eq(invoices.organizationId, input.organizationId)))
+    .returning();
+
+  await db.insert(activities).values({
+    organizationId: input.organizationId,
+    entityType: 'invoice',
+    entityId: invoice.id,
+    type: 'payment_recorded',
+    message: `Płatność online (Stripe): ${(amountCents / 100).toFixed(2)} zł`,
+    userId: null,
+    userName: 'Stripe (webhook)',
+  });
+
+  await writeAuditLog({
+    organizationId: input.organizationId,
+    userId: null,
+    action: 'payment.stripe_recorded',
+    entityType: 'invoice',
+    entityId: invoice.id,
+    meta: { paymentIntentId: input.stripePaymentIntentId, amountCents, method: 'STRIPE' },
+  });
+
+  if (status === 'PAID') {
+    await enqueueAutomations({
+      organizationId: input.organizationId,
+      trigger: 'PAYMENT_RECEIVED',
+      targetType: 'invoice',
+      targetId: invoice.id,
+    });
+  }
+
+  return { ok: true, duplicate: false, invoice: updated };
 }

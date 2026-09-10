@@ -284,3 +284,49 @@ export async function deleteCustomerAction(formData: FormData): Promise<void> {
   revalidatePath('/klienci');
   redirect('/klienci');
 }
+
+/**
+ * Preferencje wiadomości klienta — osobno dla kanału i dla kategorii
+ * (transakcyjne / systemowe / automatyczne / marketingowe).
+ *
+ * Zapis zmiany zgody trafia do logu audytowego (wymóg rozliczalności).
+ */
+export async function updateCustomerPreferencesAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  let context;
+  try {
+    context = await requirePermissionOrThrow('customer:write');
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Brak uprawnień.' };
+  }
+
+  const customerId = String(formData.get('customerId') ?? '');
+  const existing = await getCustomer(context.organization.id, customerId);
+  if (!existing) return { ok: false, error: 'Nie znaleziono klienta.' };
+
+  const values = {
+    emailOptIn: formData.get('emailOptIn') === 'on',
+    smsOptIn: formData.get('smsOptIn') === 'on',
+    emailTransactionalOptIn: formData.get('emailTransactionalOptIn') === 'on',
+    emailSystemOptIn: formData.get('emailSystemOptIn') === 'on',
+    emailAutomationOptIn: formData.get('emailAutomationOptIn') === 'on',
+    emailMarketingOptIn: formData.get('emailMarketingOptIn') === 'on',
+    consentBasis: String(formData.get('consentBasis') ?? '') || null,
+  };
+
+  await db
+    .update(customers)
+    .set({ ...values, updatedAt: new Date() })
+    .where(and(eq(customers.id, customerId), eq(customers.organizationId, context.organization.id)));
+
+  await writeAuditLog({
+    organizationId: context.organization.id,
+    userId: context.user.id,
+    action: 'customer.preferences_updated',
+    entityType: 'customer',
+    entityId: customerId,
+    meta: values,
+  });
+
+  revalidatePath(`/klienci/${customerId}`);
+  return { ok: true, message: 'Preferencje wiadomości zapisane.' };
+}

@@ -1,19 +1,23 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/guards';
-import { getLeadSummary, listLeads } from '@/lib/services/leads';
+import { countLeads, getLeadSummary, listLeads } from '@/lib/services/leads';
 import { Badge, ButtonLink, Card, EmptyState, PageHeader, Stat } from '@/components/ui';
 import { formatMoney } from '@/lib/money';
 import { formatDate, LEAD_STATUSES, LEAD_STATUS_TONES } from '@/lib/constants';
+import { Pagination } from '@/components/ui/pagination';
+import { parsePage, totalPages } from '@/lib/pagination';
 
 export const metadata = { title: 'Leady' };
 
-export default async function LeadsPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string }> }) {
+export default async function LeadsPage({ searchParams }: { searchParams: Promise<{ status?: string; q?: string; strona?: string }> }) {
   const context = await requirePermission('lead:read');
-  const { status, q } = await searchParams;
+  const { status, q, strona } = await searchParams;
+  const page = parsePage(strona);
 
-  const [leads, summary] = await Promise.all([
-    listLeads(context.organization.id, { status, search: q }),
+  const [leads, leadsTotal, summary] = await Promise.all([
+    listLeads(context.organization.id, { status, search: q, limit: page.limit, offset: page.offset }),
+    countLeads(context.organization.id, { status, search: q }),
     getLeadSummary(context.organization.id),
   ]);
 
@@ -130,6 +134,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             </table>
           </div>
         )}
+        <Pagination page={page.page} pages={totalPages(leadsTotal, page.limit)} basePath="/leady" query={{ status, q }} />
       </Card>
     </>
   );

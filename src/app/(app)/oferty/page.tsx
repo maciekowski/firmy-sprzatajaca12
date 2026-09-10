@@ -1,16 +1,22 @@
 import Link from 'next/link';
 import { requirePermission } from '@/lib/auth/guards';
-import { listQuotes } from '@/lib/services/estimates';
+import { countQuotes, listQuotes } from '@/lib/services/estimates';
 import { Badge, Card, EmptyState, PageHeader } from '@/components/ui';
 import { formatMoney } from '@/lib/money';
 import { formatDate, QUOTE_STATUSES, QUOTE_STATUS_TONES } from '@/lib/constants';
+import { Pagination } from '@/components/ui/pagination';
+import { parsePage, totalPages } from '@/lib/pagination';
 
 export const metadata = { title: 'Oferty' };
 
-export default async function QuotesPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+export default async function QuotesPage({ searchParams }: { searchParams: Promise<{ status?: string; strona?: string }> }) {
   const context = await requirePermission('quote:read');
-  const { status } = await searchParams;
-  const quotes = await listQuotes(context.organization.id, { status });
+  const { status, strona } = await searchParams;
+  const page = parsePage(strona);
+  const [quotes, total] = await Promise.all([
+    listQuotes(context.organization.id, { status, limit: page.limit, offset: page.offset }),
+    countQuotes(context.organization.id, { status }),
+  ]);
 
   return (
     <>
@@ -83,6 +89,7 @@ export default async function QuotesPage({ searchParams }: { searchParams: Promi
             </table>
           </div>
         )}
+        <Pagination page={page.page} pages={totalPages(total, page.limit)} basePath="/oferty" query={{ status }} />
       </Card>
     </>
   );

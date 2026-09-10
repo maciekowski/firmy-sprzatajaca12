@@ -1,9 +1,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { requirePermissionOrThrow } from '@/lib/auth/guards';
 import { createAutomation, deleteAutomation, toggleAutomation, updateAutomation } from '@/lib/services/automations';
 import { processDueRuns } from '@/lib/automation/engine';
+import { rateLimit } from '@/lib/rate-limit';
 
 export type AutomationFormState = { ok: boolean; error?: string; message?: string };
 
@@ -67,6 +69,13 @@ export async function deleteAutomationAction(formData: FormData): Promise<void> 
  */
 export async function runDueAutomationsAction(): Promise<void> {
   const context = await requirePermissionOrThrow('automation:manage');
+
+  const limit = rateLimit(`automation-run:${context.organization.id}`, 10, 60_000);
+  if (!limit.allowed) {
+    revalidatePath('/automatyzacje');
+    redirect(`/automatyzacje?blad=${encodeURIComponent(`Zbyt częste uruchamianie. Spróbuj ponownie za ${limit.retryAfterSeconds} s.`)}`);
+  }
+
   await processDueRuns(50);
   revalidatePath('/automatyzacje');
 }

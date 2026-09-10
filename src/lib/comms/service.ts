@@ -15,6 +15,51 @@ import { activeEmailProvider, emailFromAddress, emailProvider } from './email';
 import { smsProvider } from './sms';
 import { renderTemplate, textToHtml, type TemplateVariables } from './templates';
 
+/**
+ * Kategorie wiadomości — zgody klienta są rozpatrywane osobno dla każdej z nich.
+ *  - TRANSACTIONAL — wynika z realizacji usługi (np. oferta, faktura),
+ *  - SYSTEM        — techniczne powiadomienia (np. link, zmiana terminu),
+ *  - AUTOMATION    — działania automatyczne (follow-up, prośba o opinię),
+ *  - MARKETING     — treści promocyjne (domyślnie WYŁĄCZONE — wymagają zgody).
+ */
+export type MessageCategory = 'TRANSACTIONAL' | 'SYSTEM' | 'AUTOMATION' | 'MARKETING';
+
+export const MESSAGE_CATEGORY_LABELS: Record<MessageCategory, string> = {
+  TRANSACTIONAL: 'Transakcyjne (oferty, faktury, potwierdzenia)',
+  SYSTEM: 'Systemowe (linki, zmiany terminów)',
+  AUTOMATION: 'Automatyczne (follow-upy, prośby o opinię)',
+  MARKETING: 'Marketingowe (oferty specjalne, promocje)',
+};
+
+/**
+ * Reguła zgody dla kategorii. Zwraca powód odmowy — dzięki niemu w bazie
+ * widać, DLACZEGO wiadomość nie została wysłana (zamiast „sukcesu bez działania”).
+ */
+export function consentDecision(
+  category: MessageCategory,
+  prefs: { channelOptIn?: boolean | null; transactionalOptIn?: boolean | null; systemOptIn?: boolean | null; automationOptIn?: boolean | null; marketingOptIn?: boolean | null },
+): { allowed: boolean; reason?: string } {
+  if (prefs.channelOptIn === false) return { allowed: false, reason: 'Klient nie wyraził zgody na ten kanał komunikacji.' };
+
+  switch (category) {
+    case 'MARKETING':
+      return prefs.marketingOptIn === true
+        ? { allowed: true }
+        : { allowed: false, reason: 'Brak zgody na wiadomości marketingowe (domyślnie wyłączone).' };
+    case 'AUTOMATION':
+      return prefs.automationOptIn === false
+        ? { allowed: false, reason: 'Klient wyłączył wiadomości automatyczne.' }
+        : { allowed: true };
+    case 'SYSTEM':
+      return prefs.systemOptIn === false ? { allowed: false, reason: 'Klient wyłączył wiadomości systemowe.' } : { allowed: true };
+    case 'TRANSACTIONAL':
+    default:
+      return prefs.transactionalOptIn === false
+        ? { allowed: false, reason: 'Klient wyłączył wiadomości transakcyjne.' }
+        : { allowed: true };
+  }
+}
+
 export type SendCommunicationInput = {
   organizationId: string;
   channel: 'EMAIL' | 'SMS' | 'INTERNAL';
@@ -30,8 +75,14 @@ export type SendCommunicationInput = {
   userId?: string | null;
   /** czy wymagać zgody klienta (domyślnie tak, dla kanałów zewnętrznych) */
   respectConsent?: boolean;
+  /** kategoria wiadomości — decyduje, jakiej zgody wymagamy (domyślnie TRANSACTIONAL) */
+  category?: MessageCategory;
   emailOptIn?: boolean | null;
   smsOptIn?: boolean | null;
+  transactionalOptIn?: boolean | null;
+  systemOptIn?: boolean | null;
+  automationOptIn?: boolean | null;
+  marketingOptIn?: boolean | null;
   /**
    * Klucz idempotencji. Jeżeli wiadomość z tym kluczem istnieje,
    * wysyłka NIE jest powtarzana (worker może zostać uruchomiony ponownie).
@@ -88,12 +139,20 @@ export async function sendCommunication(input: SendCommunicationInput): Promise<
     provider = 'internal';
   } else {
     const respectConsent = input.respectConsent ?? true;
-    const consentOk =
-      !respectConsent || (input.channel === 'EMAIL' ? input.emailOptIn !== false : input.smsOptIn !== false);
+    const channelOptIn = input.channel === 'EMAIL' ? input.emailOptIn : input.smsOptIn;
+    const decision = respectConsent
+      ? consentDecision(input.category ?? 'TRANSACTIONAL', {
+          channelOptIn,
+          transactionalOptIn: input.transactionalOptIn,
+          systemOptIn: input.systemOptIn,
+          automationOptIn: input.automationOptIn,
+          marketingOptIn: input.marketingOptIn,
+        })
+      : { allowed: true };
 
-    if (!consentOk) {
+    if (!decision.allowed) {
       status = 'SKIPPED_NO_CONSENT';
-      error = 'Klient nie wyraził zgody na ten kanał komunikacji.';
+      error = decision.reason ?? 'Klient nie wyraził zgody na tę kategorię wiadomości.';
     } else {
       const channelProvider = input.channel === 'EMAIL' ? activeEmailProvider() : smsProvider;
       provider = channelProvider.name;

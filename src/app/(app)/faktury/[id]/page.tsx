@@ -5,7 +5,7 @@ import { requirePermission } from '@/lib/auth/guards';
 import { getInvoice, getInvoiceItems, getInvoicePayments } from '@/lib/services/invoices';
 import { Badge, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Stat } from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
-import { cancelInvoiceAction, markInvoiceSentAction, recordPaymentAction } from '@/app/(app)/faktury/actions';
+import { cancelInvoiceAction, markInvoiceSentAction, payInvoiceByCardAction, recordPaymentAction } from '@/app/(app)/faktury/actions';
 import {
   downloadKsefUpoAction,
   markInvoiceReadyForKsefAction,
@@ -14,6 +14,7 @@ import {
 } from '@/app/(app)/faktury/actions-ksef';
 import { KSEF_STATUS_LABELS } from '@/lib/ksef/config';
 import { CopyLinkButton } from '@/components/quotes/copy-link';
+import { stripeStatus } from '@/lib/billing/stripe';
 import { formatMoney } from '@/lib/money';
 import { formatDate, formatDateTime, INVOICE_STATUSES, INVOICE_STATUS_TONES, PAYMENT_METHODS } from '@/lib/constants';
 
@@ -30,16 +31,23 @@ const WYNIK: Record<string, string> = {
   'ksef-upo': 'UPO pobrane z KSeF i zapisane w plikach firmy.',
 };
 
+/** Komunikaty o płatności online — uczciwe: otwarcie sesji ≠ zapłata. */
+const PLATNOSC: Record<string, string> = {
+  oczekuje:
+    'Otwarto sesję płatności w Stripe. Faktura zostanie oznaczona jako opłacona dopiero po potwierdzeniu z serwera Stripe (webhook) — odśwież stronę za chwilę.',
+  anulowana: 'Płatność w Stripe została przerwana. Faktura pozostaje nieopłacona.',
+};
+
 export default async function InvoicePage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ wynik?: string; blad?: string }>;
+  searchParams: Promise<{ wynik?: string; blad?: string; platnosc?: string }>;
 }) {
   const context = await requirePermission('invoice:read');
   const { id } = await params;
-  const { wynik, blad } = await searchParams;
+  const { wynik, blad, platnosc } = await searchParams;
 
   const invoice = await getInvoice(context.organization.id, id);
   if (!invoice) notFound();
@@ -50,7 +58,7 @@ export default async function InvoicePage({
   const statusLabel = INVOICE_STATUSES.find((item) => item.value === invoice.status)?.label ?? invoice.status;
   const remaining = invoice.totalCents - invoice.paidCents;
   const publicUrl = `${(process.env.APP_URL ?? '').replace(/\/$/, '')}/f/${invoice.publicToken}`;
-  const stripeEnabled = Boolean(process.env.STRIPE_SECRET_KEY);
+  const stripe = stripeStatus();
   const ksefEnabled = Boolean(process.env.KSEF_TOKEN && process.env.KSEF_NIP && process.env.KSEF_MODE);
 
   return (
@@ -86,6 +94,9 @@ export default async function InvoicePage({
         ) : null}
         {blad ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">{blad}</div>
+        ) : null}
+        {platnosc && PLATNOSC[platnosc] ? (
+          <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">{PLATNOSC[platnosc]}</div>
         ) : null}
       </div>
 
@@ -208,22 +219,24 @@ export default async function InvoicePage({
           <Card>
             <CardHeader title="Płatność online" />
             <CardBody className="space-y-2 text-sm">
-              {stripeEnabled ? (
-                <>
-                  <p className="text-ink-700">
-                    Stripe jest skonfigurowany — płatność kartą jest obsługiwana przez webhook (status aktualizuje się po
-                    potwierdzeniu z serwera Stripe).
-                  </p>
-                  <p className="inline-flex items-center gap-2 text-ink-500">
-                    <CreditCard className="h-4 w-4" /> Formularz płatności pojawia się po zapisaniu metody „Stripe”.
-                  </p>
-                </>
-              ) : (
-                <p className="text-amber-800">
-                  Płatności online są <strong>nieaktywne</strong>. Brak kluczy Stripe w konfiguracji — system ich nie
-                  symuluje. Fakturę można opłacić przelewem: wpłatę księgujesz ręcznie powyżej.
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">{stripe.label}</p>
+              <p className="text-ink-600">{stripe.detail}</p>
+
+              {stripe.configured && remaining > 0 && invoice.status !== 'CANCELLED' && context.can('invoice:write') ? (
+                <form action={payInvoiceByCardAction}>
+                  <input type="hidden" name="invoiceId" value={invoice.id} />
+                  <SubmitButton variant="success">
+                    <CreditCard className="h-4 w-4" /> Zapłać {formatMoney(remaining, currency)} kartą
+                  </SubmitButton>
+                </form>
+              ) : null}
+
+              {stripe.configured && remaining > 0 ? (
+                <p className="text-xs text-ink-500">
+                  Przekierujemy Cię na prawdziwą stronę płatności Stripe. Wpłata zostanie zaksięgowana dopiero po
+                  potwierdzeniu podpisanym webhookiem — powrót na stronę sam w sobie nie oznacza zapłaty.
                 </p>
-              )}
+              ) : null}
             </CardBody>
           </Card>
 

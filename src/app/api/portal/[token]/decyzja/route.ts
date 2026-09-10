@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { revalidatePath } from 'next/cache';
+import { rateLimit } from '@/lib/rate-limit';
 import { acceptQuoteByToken, rejectQuoteByToken, requestQuoteChangesByToken } from '@/lib/services/quotes';
 
 function clientIp(request: NextRequest): string | undefined {
@@ -16,6 +17,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const comment = String(form.get('notatka') ?? '').trim() || undefined;
   const ip = clientIp(request);
   const userAgent = request.headers.get('user-agent') ?? undefined;
+
+  // Ochrona przed spamowaniem publicznego linku (wg IP i tokenu).
+  const limit = rateLimit(`portal-decision:${ip}:${token}`, 20, 60_000);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: `Zbyt wiele prób. Spróbuj ponownie za ${limit.retryAfterSeconds} s.` },
+      { status: 429, headers: { 'retry-after': String(limit.retryAfterSeconds) } },
+    );
+  }
 
   const meta = { actorName, ip, userAgent };
 

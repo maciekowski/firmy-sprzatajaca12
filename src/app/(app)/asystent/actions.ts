@@ -4,6 +4,7 @@ import { requirePermissionOrThrow } from '@/lib/auth/guards';
 import { getAnalytics } from '@/lib/queries/analytics';
 import { getAIProvider, aiProviderStatus } from '@/lib/ai';
 import { formatMoney } from '@/lib/money';
+import { rateLimit } from '@/lib/rate-limit';
 
 export type AssistantState = {
   ok: boolean;
@@ -21,6 +22,10 @@ export async function askAssistantAction(_prev: AssistantState, formData: FormDa
   const context = await requirePermissionOrThrow('analytics:read');
   const question = String(formData.get('question') ?? '').trim();
   if (!question) return { ok: false, error: 'Wpisz pytanie.' };
+
+  // AI — limit zapytań (model płatny, dane wrażliwe).
+  const limit = rateLimit(`ai-assistant:${context.organization.id}`, 30, 60_000);
+  if (!limit.allowed) return { ok: false, error: `Zbyt wiele pytań. Spróbuj ponownie za ${limit.retryAfterSeconds} s.` };
 
   const analytics = await getAnalytics(context.organization.id);
   const currency = context.organization.currency;

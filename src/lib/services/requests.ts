@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
 import { serviceRequests, type ServiceRequest } from '@/lib/db/schema';
 import { getAIProvider } from '@/lib/ai';
@@ -25,8 +25,8 @@ export type RequestDraft = {
   channel?: string;
 };
 
-export async function listRequests(organizationId: string, options: { status?: string; search?: string } = {}) {
-  const filters = [eq(serviceRequests.organizationId, organizationId)];
+function buildRequestFilters(organizationId: string, options: { status?: string; search?: string } = {}) {
+  const filters: SQL[] = [eq(serviceRequests.organizationId, organizationId)];
   if (options.status && options.status !== 'ALL') filters.push(eq(serviceRequests.status, options.status as never));
   if (options.search) {
     const term = `%${options.search}%`;
@@ -34,8 +34,31 @@ export async function listRequests(organizationId: string, options: { status?: s
       sql`(${serviceRequests.description} ilike ${term} or coalesce(${serviceRequests.contactName}, '') ilike ${term} or coalesce(${serviceRequests.contactEmail}, '') ilike ${term})`,
     );
   }
+  return filters;
+}
 
-  return db.select().from(serviceRequests).where(and(...filters)).orderBy(desc(serviceRequests.createdAt));
+export async function listRequests(
+  organizationId: string,
+  options: { status?: string; search?: string; limit?: number; offset?: number } = {},
+) {
+  const filters = buildRequestFilters(organizationId, options);
+  return db
+    .select()
+    .from(serviceRequests)
+    .where(and(...filters))
+    .orderBy(desc(serviceRequests.createdAt))
+    .limit(options.limit ?? 100)
+    .offset(options.offset ?? 0);
+}
+
+/** Liczba zapytań dla zadanych filtrów — potrzebna do paginacji. */
+export async function countRequests(
+  organizationId: string,
+  options: { status?: string; search?: string } = {},
+): Promise<number> {
+  const filters = buildRequestFilters(organizationId, options);
+  const [{ value }] = await db.select({ value: sql<number>`count(*)::int` }).from(serviceRequests).where(and(...filters));
+  return Number(value ?? 0);
 }
 
 export async function getRequest(organizationId: string, requestId: string) {

@@ -1,19 +1,25 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/guards';
-import { listJobs } from '@/lib/services/jobs';
+import { countJobs, listJobs } from '@/lib/services/jobs';
 import { Badge, ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui';
 import { formatDate, formatTime, JOB_STATUSES, JOB_STATUS_TONES } from '@/lib/constants';
+import { Pagination } from '@/components/ui/pagination';
+import { parsePage, totalPages } from '@/lib/pagination';
 
 export const metadata = { title: 'Zlecenia' };
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ status?: string; dzis?: string }> }) {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ status?: string; dzis?: string; strona?: string }> }) {
   const context = await requirePermission('job:read');
-  const { status, dzis } = await searchParams;
+  const { status, dzis, strona } = await searchParams;
+  const page = parsePage(strona);
 
+  const total = await countJobs(context.organization.id, { status, today: dzis === '1' });
   const jobs = await listJobs(context.organization.id, {
     status,
     today: dzis === '1',
+    limit: page.limit,
+    offset: page.offset,
   });
 
   const statusLabel = (value: string) => JOB_STATUSES.find((item) => item.value === value)?.label ?? value;
@@ -130,6 +136,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             </table>
           </div>
         )}
+        <Pagination page={page.page} pages={totalPages(total, page.limit)} basePath="/zlecenia" query={{ status, dzis }} />
       </Card>
     </>
   );

@@ -1,19 +1,23 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/guards';
-import { getInvoiceSummary, listInvoices } from '@/lib/services/invoices';
+import { countInvoices, getInvoiceSummary, listInvoices } from '@/lib/services/invoices';
 import { Badge, ButtonLink, Card, EmptyState, PageHeader, Stat } from '@/components/ui';
 import { formatMoney } from '@/lib/money';
 import { formatDate, INVOICE_STATUSES, INVOICE_STATUS_TONES } from '@/lib/constants';
+import { Pagination } from '@/components/ui/pagination';
+import { parsePage, totalPages } from '@/lib/pagination';
 
 export const metadata = { title: 'Faktury' };
 
-export default async function InvoicesPage({ searchParams }: { searchParams: Promise<{ status?: string; blad?: string }> }) {
+export default async function InvoicesPage({ searchParams }: { searchParams: Promise<{ status?: string; blad?: string; strona?: string }> }) {
   const context = await requirePermission('invoice:read');
-  const { status, blad } = await searchParams;
+  const { status, blad, strona } = await searchParams;
+  const page = parsePage(strona);
 
-  const [invoices, summary] = await Promise.all([
-    listInvoices(context.organization.id, { status }),
+  const [invoices, total, summary] = await Promise.all([
+    listInvoices(context.organization.id, { status, limit: page.limit, offset: page.offset }),
+    countInvoices(context.organization.id, { status }),
     getInvoiceSummary(context.organization.id),
   ]);
 
@@ -103,6 +107,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
             </table>
           </div>
         )}
+        <Pagination page={page.page} pages={totalPages(total, page.limit)} basePath="/faktury" query={{ status }} />
       </Card>
     </>
   );
