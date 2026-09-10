@@ -11,7 +11,16 @@ export type AutomationInput = {
   action: string;
   delayMinutes?: number;
   conditions?: { onlyIfUnaccepted?: boolean; minValueCents?: number };
-  actionConfig?: { subject?: string; body?: string; status?: string; message?: string; channel?: string } | null;
+  actionConfig?: {
+    subject?: string;
+    body?: string;
+    status?: string;
+    message?: string;
+    channel?: string;
+    templateKey?: string;
+    title?: string;
+    followUpDays?: number;
+  } | null;
   isActive?: boolean;
 };
 
@@ -82,7 +91,7 @@ export async function createAutomation(
 export async function updateAutomation(
   ctx: ServiceContext,
   automationId: string,
-  input: AutomationInput,
+  input: Partial<AutomationInput> & { name?: string },
 ): Promise<{ ok: true; automation: Automation } | { ok: false; error: string }> {
   const current = await getAutomation(ctx.organizationId, automationId);
   if (!current) return { ok: false, error: 'Nie znaleziono automatyzacji.' };
@@ -90,7 +99,7 @@ export async function updateAutomation(
   const [automation] = await db
     .update(automations)
     .set({
-      name: input.name.trim() || current.name,
+      name: input.name?.trim() || current.name,
       trigger: (input.trigger ?? current.trigger) as never,
       action: (input.action ?? current.action) as never,
       delayMinutes: input.delayMinutes ?? current.delayMinutes,

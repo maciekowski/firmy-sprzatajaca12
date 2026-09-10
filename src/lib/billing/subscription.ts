@@ -81,6 +81,25 @@ export function evaluateSubscription(org: SubscriptionSnapshot, now: Date = new 
     };
   }
 
+  /**
+   * Statusy „problemowe” (PAST_DUE, UNPAID, PAUSED, CANCELED, INCOMPLETE_EXPIRED)
+   * blokują zapis niezależnie od trwającego okresu próbnego — to decyzja
+   * dostawcy płatności (Stripe), którą serwer respektuje.
+   */
+  const blockedStatuses = new Set(['PAST_DUE', 'UNPAID', 'PAUSED', 'CANCELED', 'INCOMPLETE_EXPIRED']);
+  if (blockedStatuses.has(status)) {
+    return {
+      plan,
+      status,
+      active: false,
+      trialing: false,
+      trialDaysLeft: daysLeft,
+      readOnly: true,
+      message: `Subskrypcja ma status ${status}. Zapisy są zablokowane do czasu uregulowania płatności.`,
+      trialEndsAt: trialEnd,
+    };
+  }
+
   // Trwający okres próbny.
   if (trialRunning) {
     return {

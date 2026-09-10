@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Camera, Check, Play, Square, Timer } from 'lucide-react';
-import { requirePermission } from '@/lib/auth/guards';
+import { requireJobExecutionAccess } from '@/lib/auth/guards';
 import { getActiveTimeEntry, getJob } from '@/lib/services/jobs';
 import { getJobChecklists, getJobNotesWithAuthors, getJobPhotosWithFiles } from '@/lib/data/jobs';
 import { db } from '@/lib/db/client';
@@ -31,9 +31,10 @@ export default async function JobExecutionPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ blad?: string }>;
 }) {
-  const context = await requirePermission('job:write');
   const { id } = await params;
   const { blad } = await searchParams;
+  // pracownik może realizować zlecenie tylko wtedy, gdy jest do niego przypisany
+  const context = await requireJobExecutionAccess(id);
 
   const job = await getJob(context.organization.id, id);
   if (!job) notFound();

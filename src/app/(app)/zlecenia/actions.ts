@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { requirePermissionOrThrow } from '@/lib/auth/guards';
+import { requireJobExecutionAccessOrThrow, requirePermissionOrThrow } from '@/lib/auth/guards';
 import {
   addJobNote,
   addJobPhoto,
@@ -91,10 +91,11 @@ export async function scheduleJobAction(formData: FormData): Promise<void> {
 }
 
 export async function updateJobStatusAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
+  const jobId = String(formData.get('jobId') ?? '');
+  // pracownik może zakończyć tylko zlecenie, do którego jest przypisany
+  const context = await requireJobExecutionAccessOrThrow(jobId);
   const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
 
-  const jobId = String(formData.get('jobId') ?? '');
   const status = String(formData.get('status') ?? '') as never;
   const note = String(formData.get('note') ?? '') || null;
 
@@ -114,10 +115,11 @@ export async function updateJobStatusAction(formData: FormData): Promise<void> {
 }
 
 export async function completeJobAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
+  const jobId = String(formData.get('jobId') ?? '');
+  // pracownik może zakończyć tylko zlecenie, do którego jest przypisany
+  const context = await requireJobExecutionAccessOrThrow(jobId);
   const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
 
-  const jobId = String(formData.get('jobId') ?? '');
   const note = String(formData.get('note') ?? '') || null;
 
   const result = await completeJob(ctx, jobId, { note });
@@ -146,9 +148,10 @@ export async function assignJobPeopleAction(formData: FormData): Promise<void> {
 }
 
 export async function addJobNoteAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
-  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const jobId = String(formData.get('jobId') ?? '');
+  // pracownik w terenie (job:self) może działać tylko w przypisanym zleceniu
+  const context = await requireJobExecutionAccessOrThrow(jobId);
+  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const body = String(formData.get('body') ?? '').trim();
 
   if (!body) backTo(jobId, { blad: 'Notatka nie może być pusta.' });
@@ -160,9 +163,10 @@ export async function addJobNoteAction(formData: FormData): Promise<void> {
 
 /** Zdjęcie jest wgrywane przez /api/pliki, a tu tylko wiązane ze zleceniem. */
 export async function addJobPhotoAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
-  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const jobId = String(formData.get('jobId') ?? '');
+  // pracownik w terenie (job:self) może działać tylko w przypisanym zleceniu
+  const context = await requireJobExecutionAccessOrThrow(jobId);
+  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const fileId = String(formData.get('fileId') ?? '');
   const type = (String(formData.get('type') ?? 'OTHER') || 'OTHER') as 'BEFORE' | 'DURING' | 'AFTER' | 'OTHER';
   const caption = String(formData.get('caption') ?? '') || undefined;
@@ -175,9 +179,10 @@ export async function addJobPhotoAction(formData: FormData): Promise<void> {
 }
 
 export async function toggleChecklistItemAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
-  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const jobId = String(formData.get('jobId') ?? '');
+  // pracownik w terenie (job:self) może działać tylko w przypisanym zleceniu
+  const context = await requireJobExecutionAccessOrThrow(jobId);
+  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const itemId = String(formData.get('itemId') ?? '');
   const done = String(formData.get('done') ?? '') !== 'false';
 
@@ -191,7 +196,7 @@ async function jobOf(jobId: string) {
 }
 
 export async function startTimeEntryAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
+  const context = await requirePermissionOrThrow('job:complete');
   const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const jobId = await jobOf(String(formData.get('jobId') ?? ''));
 
@@ -201,9 +206,10 @@ export async function startTimeEntryAction(formData: FormData): Promise<void> {
 }
 
 export async function pauseTimeEntryAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
-  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const jobId = String(formData.get('jobId') ?? '');
+  // pracownik w terenie (job:self) może działać tylko w przypisanym zleceniu
+  const context = await requireJobExecutionAccessOrThrow(jobId);
+  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
 
   const result = await pauseTimeEntry(ctx, jobId);
   revalidatePath(`/zlecenia/${jobId}`);
@@ -211,9 +217,10 @@ export async function pauseTimeEntryAction(formData: FormData): Promise<void> {
 }
 
 export async function resumeTimeEntryAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
-  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const jobId = String(formData.get('jobId') ?? '');
+  // pracownik w terenie (job:self) może działać tylko w przypisanym zleceniu
+  const context = await requireJobExecutionAccessOrThrow(jobId);
+  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
 
   const result = await resumeTimeEntry(ctx, jobId);
   revalidatePath(`/zlecenia/${jobId}`);
@@ -221,9 +228,10 @@ export async function resumeTimeEntryAction(formData: FormData): Promise<void> {
 }
 
 export async function stopTimeEntryAction(formData: FormData): Promise<void> {
-  const context = await requirePermissionOrThrow('job:write');
-  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
   const jobId = String(formData.get('jobId') ?? '');
+  // pracownik w terenie (job:self) może działać tylko w przypisanym zleceniu
+  const context = await requireJobExecutionAccessOrThrow(jobId);
+  const ctx = { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name };
 
   const result = await stopTimeEntry(ctx, jobId);
   revalidatePath(`/zlecenia/${jobId}`);

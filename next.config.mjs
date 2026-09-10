@@ -12,6 +12,12 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '12mb',
     },
+    /**
+     * Włącza przerwania autoryzacyjne Next.js: forbidden() → 403 (strona
+     * src/app/forbidden.tsx) oraz unauthorized() → 401. Bez tego brak
+     * uprawnień kończył się błędem 500 zamiast poprawną odpowiedzią 403.
+     */
+    authInterrupts: true,
   },
 };
 

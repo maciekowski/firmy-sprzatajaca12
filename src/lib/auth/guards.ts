@@ -2,7 +2,7 @@ import 'server-only';
 import { forbidden, redirect } from 'next/navigation';
 import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
-import { memberships, organizations, type Organization, type Role, type User } from '@/lib/db/schema';
+import { jobAssignments, memberships, organizations, type Organization, type Role, type User } from '@/lib/db/schema';
 import { can, type Permission } from '@/lib/authz/permissions';
 import { getActiveOrganizationId, getSessionUser } from './session';
 import { evaluateSubscription, readOnlyMessage } from '@/lib/billing/subscription';
@@ -115,6 +115,40 @@ export async function requirePermission(permission: Permission, organizationId?:
   const context = await requireOrgContext(organizationId);
   if (!context.can(permission)) {
     forbidden();
+  }
+  return context;
+}
+
+/**
+ * Pracownik w terenie ma uprawnienie `job:self` — może realizować WYŁĄCZNIE
+ * zlecenia, do których jest przypisany. Funkcja zwraca informację, czy
+ * użytkownik może wykonywać działania w zleceniu (zdjęcia, notatki, czas).
+ */
+export async function hasJobExecutionAccess(context: OrgContext, jobId: string): Promise<boolean> {
+  if (context.can('job:write')) return true;
+  if (!context.can('job:self')) return false;
+
+  const [assignment] = await db
+    .select({ id: jobAssignments.id })
+    .from(jobAssignments)
+    .where(and(eq(jobAssignments.jobId, jobId), eq(jobAssignments.userId, context.user.id)))
+    .limit(1);
+
+  return Boolean(assignment);
+}
+
+/** Wersja dla stron (renderuje stronę 403, gdy brak dostępu). */
+export async function requireJobExecutionAccess(jobId: string): Promise<OrgContext> {
+  const context = await requirePermission('job:read');
+  if (!(await hasJobExecutionAccess(context, jobId))) forbidden();
+  return context;
+}
+
+/** Wersja dla akcji i API (rzuca błąd 403 zamiast renderowania strony). */
+export async function requireJobExecutionAccessOrThrow(jobId: string): Promise<OrgContext> {
+  const context = await requirePermissionOrThrow('job:read');
+  if (!(await hasJobExecutionAccess(context, jobId))) {
+    throw new ForbiddenError('Brak dostępu do tego zlecenia — nie jesteś do niego przypisany.');
   }
   return context;
 }
