@@ -124,7 +124,9 @@ describe('strony aplikacji (HTTP)', () => {
     expect((await get('/rejestracja')).status).toBe(200);
   });
 
-  it('strony aplikacji renderują się dla zalogowanego użytkownika', async () => {
+  it(
+    'strony aplikacji renderują się dla zalogowanego użytkownika',
+    async () => {
     // Tylko strony, które faktycznie istnieją — brakujące są zgłaszane jako błąd testu.
     const paths = [
       '/dashboard',
@@ -153,14 +155,17 @@ describe('strony aplikacji (HTTP)', () => {
       '/opinie',
       '/asystent',
     ];
-    for (const path of paths) {
-      const response = await get(path, cookieA);
-      // 200 = ok, 404 = strona jeszcze nie istnieje (oznaczamy jako brak)
-      if (response.status !== 200) {
-        throw new Error(`${path} → ${response.status}`);
+      for (const path of paths) {
+        const response = await get(path, cookieA);
+        // 200 = ok, 404 = strona jeszcze nie istnieje (oznaczamy jako brak)
+        if (response.status !== 200) {
+          throw new Error(`${path} → ${response.status}`);
+        }
       }
-    }
-  });
+    },
+    // Kompilacja wszystkich tras w trybie deweloperskim bywa wolniejsza niż 60 s.
+    300_000,
+  );
 
   it('szczegóły wyceny działają, a inna organizacja dostaje 404', async () => {
     const own = await get(`/wyceny/${estimateId}`, cookieA);
