@@ -71,6 +71,16 @@ wyłącznie zlecenia, do których jest przypisany.
 - **PWA** — aplikacja jest instalowalna (`manifest.webmanifest` + service worker), a w razie
   braku sieci pracownik w terenie widzi stronę offline z informacją, że zapis wymaga połączenia.
 
+## Praca w terenie bez sieci (kolejka offline)
+
+Widok wykonania zlecenia ma kolejkę offline (IndexedDB): pracownik bez zasięgu zapisuje
+notatki i zdjęcia lokalnie, a po powrocie do sieci wysyła je partią do
+`POST /api/zlecenia/<id>/synchronizuj`. Każda pozycja ma `clientId` nadawany na urządzeniu —
+unikalność `(organizationId, clientId)` w tabeli `sync_records` gwarantuje, że ponowiona
+wysyłka nie utworzy duplikatu. Wynik jest rozliczany **per pozycja**, a dane oczekujące są
+oznaczone jako „oczekuje” (nic nie jest pokazywane jako zapisane na serwerze przed
+potwierdzeniem).
+
 ## Subskrypcja i okres próbny
 
 - nowa firma dostaje 10 dni próby (`trialEndsAt`, `subscriptionStatus = TRIALING`) — ustawia to serwer,
@@ -91,13 +101,16 @@ wyłącznie zlecenia, do których jest przypisany.
 ## Testy
 
 ```bash
-npm test                      # 180 testów (wymaga uruchomionej bazy i serwera)
+npm test                      # 189 testów (wymaga uruchomionej bazy i serwera)
 npx vitest run tests/unit     # reguły: ceny, pieniądze, subskrypcja, zgody, paginacja
 npx vitest run tests/security # IDOR, role, webhooki, rate limiting — „brak dostępu = test zaliczony”
 ```
 
 Zakres: silnik cenowy i podatki, płatności i idempotencja webhooków, wysyłka faktur e-mailem,
 automatyzacje (kolejka, warunki, logi), opinie, analityka (agregaty SQL), paginacja, czas pracy,
-komunikacja (statusy dostarczenia), konto klienta, zaproszenia do zespołu, KSeF, AI (silnik
-regułowy), izolacja danych, uprawnienia ról, wydajność przy 2000 dokumentach oraz renderowanie
-każdej strony (HTTP).
+komunikacja (statusy dostarczenia), konto klienta, zaproszenia do zespołu, kolejka offline
+(idempotencja syncu), KSeF, AI (silnik regułowy), izolacja danych, uprawnienia ról,
+wydajność przy 2000 dokumentach oraz renderowanie każdej strony (HTTP).
+
+Instrukcja uruchomienia na prawdziwych kluczach (Stripe, Resend, KSeF, AI, cron) oraz
+checklista przedprodukcyjna: [`WDROZENIE.md`](./WDROZENIE.md).

@@ -36,6 +36,13 @@
       "when": 1789077523125,
       "tag": "0004_daily_dark_phoenix",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789079180068,
+      "tag": "0005_nosy_patriot",
+      "breakpoints": true
     }
   ]
 }

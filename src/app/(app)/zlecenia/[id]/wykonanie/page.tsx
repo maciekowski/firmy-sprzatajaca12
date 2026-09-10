@@ -9,6 +9,7 @@ import { customers } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { Badge, Card, CardBody, CardHeader, Select, Textarea } from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
+import { OfflineQueue } from '@/components/jobs/offline-queue';
 import {
   addJobNoteAction,
   completeJobAction,
@@ -264,6 +265,10 @@ export default async function JobExecutionPage({
           ) : null}
         </CardBody>
       </Card>
+
+      <div className="mt-4">
+        <OfflineQueue jobId={job.id} />
+      </div>
 
       {job.status === 'IN_PROGRESS' ? (
         <Card className="mt-4">

@@ -413,6 +413,38 @@ export const invitations = pgTable(
   ],
 );
 
+/**
+ * Rejestr zsynchronizowanych operacji z trybu offline.
+ *
+ * Pracownik w terenie (bez sieci) zapisuje zdjęcia i notatki lokalnie,
+ * a po powrocie do sieci wysyła je partiami. `clientId` jest generowany
+ * na urządzeniu i dzięki unikalności gwarantuje, że ponowiona próba
+ * (np. po utracie połączenia w trakcie wysyłki) NIE utworzy duplikatu.
+ */
+export const syncRecords = pgTable(
+  'sync_records',
+  {
+    id: text('id').primaryKey().$defaultFn(() => newId('syn')),
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    jobId: text('job_id')
+      .notNull()
+      .references(() => jobs.id, { onDelete: 'cascade' }),
+    /** identyfikator nadany przez urządzenie — klucz idempotencji */
+    clientId: text('client_id').notNull(),
+    kind: text('kind').notNull(), // note | photo | status | checklist
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('sync_records_org_client_uq').on(t.organizationId, t.clientId),
+    index('sync_records_job_idx').on(t.jobId),
+  ],
+);
+
 export const orgSettings = pgTable(
   'org_settings',
   {
@@ -1655,3 +1687,4 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type MessageTemplate = typeof messageTemplates.$inferSelect;
 export type DocumentCounter = typeof documentCounters.$inferSelect;
 export type Invitation = typeof invitations.$inferSelect;
+export type SyncRecord = typeof syncRecords.$inferSelect;
