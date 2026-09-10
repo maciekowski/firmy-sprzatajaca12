@@ -139,17 +139,24 @@ describe('system: cron, czas pracy, AI, KSeF, komunikacja', () => {
 
     it('analiza zapytania działa bez modelu i nie wymyśla cen', async () => {
       const parsed = await getAIProvider().parseCustomerRequest({
-        description: 'Prosze o wycene sprzatania mieszkania 50 m2 w Krakowie, najlepiej w piatek po 16.',
+        text: 'Prosze o wycene sprzatania mieszkania 50 m2 w Krakowie, najlepiej w piatek po 16.',
         serviceNames: ['Sprzątanie mieszkania', 'Mycie okien'],
       });
 
       expect(parsed).toBeTruthy();
       expect(Array.isArray(parsed.items)).toBe(true);
-      // wynik analizy nie może zawierać kwot — pieniądze liczy wyłącznie silnik cenowy
-      for (const item of parsed.items ?? []) {
-        expect(item.suggestedServiceName === undefined || typeof item.suggestedServiceName === 'string').toBe(true);
+      expect(parsed.items.length).toBeGreaterThan(0);
+
+      // analiza nie wymyśla danych: brak pewności oznacza „do potwierdzenia”
+      for (const item of parsed.items) {
+        expect(typeof item.label).toBe('string');
+        if (!item.quantityFound) expect(item.quantity).toBeNull();
+        expect(['SQM', 'HOUR', 'PIECE', 'ROOM', 'VEHICLE', 'VISIT', 'FIXED', null]).toContain(item.unit);
       }
+
+      // wynik analizy NIE zawiera kwot — pieniądze liczy wyłącznie silnik cenowy
       expect((parsed as unknown as { totalCents?: number }).totalCents).toBeUndefined();
+      expect((parsed as unknown as { price?: number }).price).toBeUndefined();
     });
   });
 
