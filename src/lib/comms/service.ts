@@ -11,7 +11,7 @@
 import { db } from '@/lib/db/client';
 import { communications, messageTemplates, type Communication } from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
-import { emailProvider } from './email';
+import { activeEmailProvider, emailFromAddress, emailProvider } from './email';
 import { smsProvider } from './sms';
 import { renderTemplate, textToHtml, type TemplateVariables } from './templates';
 
@@ -32,12 +32,19 @@ export type SendCommunicationInput = {
   respectConsent?: boolean;
   emailOptIn?: boolean | null;
   smsOptIn?: boolean | null;
+  /**
+   * Klucz idempotencji. Jeżeli wiadomość z tym kluczem istnieje,
+   * wysyłka NIE jest powtarzana (worker może zostać uruchomiony ponownie).
+   */
+  idempotencyKey?: string | null;
 };
 
 export type SendCommunicationResult = {
   communication: Communication;
   delivered: boolean;
   reason?: string;
+  /** true, gdy wiadomość o tym samym kluczu już istniała i nie wysłano jej ponownie */
+  deduplicated?: boolean;
 };
 
 export async function getTemplate(
@@ -55,6 +62,18 @@ export async function getTemplate(
 }
 
 export async function sendCommunication(input: SendCommunicationInput): Promise<SendCommunicationResult> {
+  // Idempotencja: ten sam klucz = jedna wiadomość, niezależnie od liczby wywołań.
+  if (input.idempotencyKey) {
+    const existing = await db
+      .select()
+      .from(communications)
+      .where(and(eq(communications.organizationId, input.organizationId), eq(communications.idempotencyKey, input.idempotencyKey)))
+      .limit(1);
+    if (existing[0]) {
+      return { communication: existing[0], delivered: existing[0].status === 'SENT' || existing[0].status === 'DELIVERED', reason: existing[0].error ?? undefined, deduplicated: true };
+    }
+  }
+
   const variables = input.variables ?? {};
   const body = renderTemplate(input.body, variables);
   const subject = input.subject ? renderTemplate(input.subject, variables) : null;
@@ -76,7 +95,7 @@ export async function sendCommunication(input: SendCommunicationInput): Promise<
       status = 'SKIPPED_NO_CONSENT';
       error = 'Klient nie wyraził zgody na ten kanał komunikacji.';
     } else {
-      const channelProvider = input.channel === 'EMAIL' ? emailProvider : smsProvider;
+      const channelProvider = input.channel === 'EMAIL' ? activeEmailProvider() : smsProvider;
       provider = channelProvider.name;
       const result = await channelProvider.send({
         to: input.to,
@@ -94,18 +113,17 @@ export async function sendCommunication(input: SendCommunicationInput): Promise<
     }
   }
 
-  const [row] = await db
-    .insert(communications)
-    .values({
+  const values = {
       organizationId: input.organizationId,
       channel: input.channel,
-      direction: 'OUTBOUND',
+      direction: 'OUTBOUND' as const,
       status,
       templateKey: input.templateKey ?? null,
       subject,
       body,
       toAddress: input.to,
-      fromAddress: input.channel === 'EMAIL' ? (process.env.MAIL_FROM ?? null) : null,
+      fromAddress: input.channel === 'EMAIL' ? emailFromAddress() : null,
+      idempotencyKey: input.idempotencyKey ?? null,
       provider,
       providerMessageId,
       error,
@@ -114,15 +132,37 @@ export async function sendCommunication(input: SendCommunicationInput): Promise<
       quoteId: input.quoteId ?? null,
       jobId: input.jobId ?? null,
       invoiceId: input.invoiceId ?? null,
-      userId: input.userId ?? null,
-    })
-    .returning();
-
-  return {
-    communication: row,
-    delivered: status === 'SENT',
-    reason: error ?? undefined,
+    userId: input.userId ?? null,
   };
+
+  // Wyścig: dwa procesy mogły sprawdzić klucz w tym samym momencie.
+  // Wtedy unikalny indeks zgłosi błąd — zwracamy istniejący rekord zamiast duplikatu.
+  try {
+    const [row] = await db.insert(communications).values(values).returning();
+    return { communication: row, delivered: status === 'SENT', reason: error ?? undefined };
+  } catch (insertError) {
+    if (input.idempotencyKey && isUniqueViolation(insertError)) {
+      const [existing] = await db
+        .select()
+        .from(communications)
+        .where(and(eq(communications.organizationId, input.organizationId), eq(communications.idempotencyKey, input.idempotencyKey)))
+        .limit(1);
+      if (existing) {
+        return {
+          communication: existing,
+          delivered: existing.status === 'SENT' || existing.status === 'DELIVERED',
+          reason: existing.error ?? undefined,
+          deduplicated: true,
+        };
+      }
+    }
+    throw insertError;
+  }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === '23505';
 }
 
 /** Powiadomienie wewnętrzne (zawsze dostępne — nie wymaga providera). */
@@ -153,5 +193,5 @@ export async function notifyInternal(input: {
   });
 }
 
-export { emailProvider, smsProvider };
+export { emailProvider, smsProvider, activeEmailProvider };
 export { DEFAULT_TEMPLATES } from './templates';

@@ -1,9 +1,14 @@
 /**
- * Wysyłka e-mail przez SMTP (nodemailer).
- * Gdy brak konfiguracji SMTP — provider zgłasza NO_PROVIDER (brak udawanej wysyłki).
+ * Wysyłka e-mail.
+ *
+ * Kolejność providerów:
+ *  1) Resend (gdy skonfigurowany RESEND_API_KEY) — zgodnie ze specyfikacją produktu,
+ *  2) SMTP (nodemailer), gdy firma ma własny serwer poczty,
+ *  3) brak providera → NO_PROVIDER (system NIE udaje wysyłki).
  */
 import type { ChannelProvider, SendInput, SendResult } from './providers';
 import { isValidEmail } from './providers';
+import { isResendConfigured, resendFrom, resendProvider } from './resend';
 
 type Transporter = {
   sendMail: (options: Record<string, unknown>) => Promise<{ messageId?: string }>;
@@ -19,7 +24,7 @@ function getTransporter(): Transporter | null {
   if (!isSmtpConfigured()) return null;
   if (cachedTransporter) return cachedTransporter;
 
-  // nodemailer ładujemy leniwie — dzięki temu brak konfiguracji nie wymaga połączenia
+  // nodemailer ładujemy leniwie — brak konfiguracji nie wymaga połączenia
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const nodemailer = require('nodemailer') as {
     createTransport: (options: Record<string, unknown>) => Transporter;
@@ -39,7 +44,7 @@ function getTransporter(): Transporter | null {
   return cachedTransporter;
 }
 
-export const emailProvider: ChannelProvider = {
+const smtpProvider: ChannelProvider = {
   name: 'smtp',
   isConfigured: isSmtpConfigured,
   async send(input: SendInput): Promise<SendResult> {
@@ -59,13 +64,35 @@ export const emailProvider: ChannelProvider = {
         html: input.html ?? undefined,
         replyTo: input.replyTo ?? undefined,
       });
-      return { ok: true, providerMessageId: info?.messageId };
+      return { ok: true, providerMessageId: info.messageId };
     } catch (error) {
-      return {
-        ok: false,
-        reason: 'FAILED',
-        error: error instanceof Error ? error.message : 'Nieznany błąd wysyłki e-mail.',
-      };
+      const message = error instanceof Error ? error.message : 'nieznany błąd';
+      return { ok: false, reason: 'FAILED', error: `SMTP: ${message}` };
     }
   },
 };
+
+/** Wybór aktywnego providera e-mail. */
+export function activeEmailProvider(): ChannelProvider {
+  if (isResendConfigured()) return resendProvider;
+  if (isSmtpConfigured()) return smtpProvider;
+  return {
+    name: 'none',
+    isConfigured: () => false,
+    async send(): Promise<SendResult> {
+      return { ok: false, reason: 'NO_PROVIDER', error: 'Brak konfiguracji poczty (Resend lub SMTP).' };
+    },
+  };
+}
+
+export const emailProvider: ChannelProvider = {
+  name: 'email',
+  isConfigured: () => activeEmailProvider().isConfigured(),
+  send: (input: SendInput) => activeEmailProvider().send(input),
+};
+
+export function emailFromAddress(): string {
+  return isResendConfigured() ? resendFrom() : (process.env.MAIL_FROM ?? null) ?? 'ServiceFlow <no-reply@example.com>';
+}
+
+export { smtpProvider, isResendConfigured };

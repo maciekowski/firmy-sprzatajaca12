@@ -171,11 +171,29 @@ export const communicationChannelEnum = pgEnum('communication_channel', ['EMAIL'
 export const communicationDirectionEnum = pgEnum('communication_direction', ['INBOUND', 'OUTBOUND']);
 export const communicationStatusEnum = pgEnum('communication_status', [
   'PENDING',
+  'QUEUED',
   'SENT',
+  'DELIVERED',
   'FAILED',
+  'BOUNCED',
+  'SUPPRESSED',
   'SKIPPED_NO_PROVIDER',
   'SKIPPED_NO_CONSENT',
-  'QUEUED',
+]);
+
+/**
+ * Status KSeF jest ZEWNĘTRZNY — odzwierciedla stan po stronie KSeF.
+ * Nigdy nie ustawiamy ACCEPTED bez potwierdzenia z KSeF.
+ */
+export const ksefStatusEnum = pgEnum('ksef_status', [
+  'NOT_CONFIGURED',
+  'READY',
+  'SUBMITTING',
+  'SUBMITTED',
+  'PROCESSING',
+  'ACCEPTED',
+  'REJECTED',
+  'ERROR',
 ]);
 
 export const automationTriggerEnum = pgEnum('automation_trigger', [
@@ -1081,6 +1099,20 @@ export const invoices = pgTable(
     sentAt: timestamp('sent_at', { withTimezone: true }),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    // --- KSeF (integracja zewnętrzna) ---
+    ksefStatus: ksefStatusEnum('ksef_status').default('NOT_CONFIGURED').notNull(),
+    ksefMode: text('ksef_mode'), // TEST | PROD
+    ksefReferenceNumber: text('ksef_reference_number'),
+    ksefNumber: text('ksef_number'),
+    ksefSubmittedAt: timestamp('ksef_submitted_at', { withTimezone: true }),
+    ksefAcceptedAt: timestamp('ksef_accepted_at', { withTimezone: true }),
+    ksefRejectedAt: timestamp('ksef_rejected_at', { withTimezone: true }),
+    ksefErrorCode: text('ksef_error_code'),
+    ksefErrorMessage: text('ksef_error_message'),
+    ksefUpoAvailable: boolean('ksef_upo_available').default(false).notNull(),
+    ksefUpoDownloadedAt: timestamp('ksef_upo_downloaded_at', { withTimezone: true }),
+    ksefLastCheckedAt: timestamp('ksef_last_checked_at', { withTimezone: true }),
+    ksefIdempotencyKey: text('ksef_idempotency_key'),
     createdById: text('created_by_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -1158,7 +1190,14 @@ export const communications = pgTable(
     provider: text('provider'),
     providerMessageId: text('provider_message_id'),
     error: text('error'),
+    idempotencyKey: text('idempotency_key'),
+    externalStatus: text('external_status'),
     sentAt: timestamp('sent_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    bouncedAt: timestamp('bounced_at', { withTimezone: true }),
+    suppressedAt: timestamp('suppressed_at', { withTimezone: true }),
+    openedAt: timestamp('opened_at', { withTimezone: true }),
+    lastEventAt: timestamp('last_event_at', { withTimezone: true }),
     scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
     customerId: text('customer_id').references(() => customers.id, { onDelete: 'set null' }),
     quoteId: text('quote_id').references(() => quotes.id, { onDelete: 'set null' }),
@@ -1170,6 +1209,8 @@ export const communications = pgTable(
   (t) => [
     index('communications_org_created_idx').on(t.organizationId, t.createdAt),
     index('communications_org_status_idx').on(t.organizationId, t.status),
+    // klucz idempotencji: jeden automatyczny e-mail = jeden rekord, nawet przy restarcie workera
+    uniqueIndex('communications_idempotency_idx').on(t.organizationId, t.idempotencyKey),
   ],
 );
 
@@ -1378,6 +1419,31 @@ export const auditLogs = pgTable(
 // ---------------------------------------------------------------------------
 // Relacje (ułatwiają typowane zapytania z `db.query`)
 // ---------------------------------------------------------------------------
+
+/**
+ * Zdarzenia przychodzące z webhooków (Stripe, Resend, KSeF).
+ * Unikalny identyfikator zdarzenia u providera gwarantuje idempotencję:
+ * powtórzony webhook nie wykona tej samej operacji dwa razy.
+ */
+export const webhookEvents = pgTable(
+  'webhook_events',
+  {
+    id: text('id').primaryKey().$defaultFn(() => newId('whk')),
+    provider: text('provider').notNull(), // STRIPE | RESEND | KSEF
+    externalId: text('external_id').notNull(),
+    type: text('type').notNull(),
+    organizationId: text('organization_id').references(() => organizations.id, { onDelete: 'cascade' }),
+    payload: jsonb('payload').$type<Record<string, unknown>>(),
+    signatureValid: boolean('signature_valid').default(false).notNull(),
+    error: text('error'),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    receivedAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('webhook_events_provider_external_idx').on(t.provider, t.externalId),
+    index('webhook_events_org_idx').on(t.organizationId),
+  ],
+);
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),

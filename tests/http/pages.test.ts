@@ -121,6 +121,10 @@ describe('strony aplikacji (HTTP)', () => {
       '/faktury',
       '/faktury/nowa',
       '/powiadomienia',
+      '/ustawienia',
+      '/ustawienia/uslugi',
+      '/ustawienia/integracje',
+      '/ustawienia/konto',
     ];
     for (const path of paths) {
       const response = await get(path, cookieA);

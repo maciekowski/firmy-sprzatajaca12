@@ -6,6 +6,13 @@ import { getInvoice, getInvoiceItems, getInvoicePayments } from '@/lib/services/
 import { Badge, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Stat } from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
 import { cancelInvoiceAction, markInvoiceSentAction, recordPaymentAction } from '@/app/(app)/faktury/actions';
+import {
+  downloadKsefUpoAction,
+  markInvoiceReadyForKsefAction,
+  refreshKsefStatusAction,
+  submitInvoiceToKsefAction,
+} from '@/app/(app)/faktury/actions-ksef';
+import { KSEF_STATUS_LABELS } from '@/lib/ksef/config';
 import { CopyLinkButton } from '@/components/quotes/copy-link';
 import { formatMoney } from '@/lib/money';
 import { formatDate, formatDateTime, INVOICE_STATUSES, INVOICE_STATUS_TONES, PAYMENT_METHODS } from '@/lib/constants';
@@ -16,6 +23,11 @@ const WYNIK: Record<string, string> = {
   wyslano: 'Faktura oznaczona jako wysłana.',
   platnosc: 'Płatność zapisana.',
   anulowano: 'Faktura anulowana.',
+  'ksef-gotowa': 'Faktura oznaczona jako gotowa do wysłania do KSeF.',
+  'ksef-wyslana': 'Faktura przekazana do KSeF. Status ostateczny ustali KSeF — odśwież za chwilę.',
+  'ksef-przyjeta': 'KSeF przyjął fakturę.',
+  'ksef-stan': 'Stan KSeF odświeżony.',
+  'ksef-upo': 'UPO pobrane z KSeF i zapisane w plikach firmy.',
 };
 
 export default async function InvoicePage({
@@ -39,6 +51,7 @@ export default async function InvoicePage({
   const remaining = invoice.totalCents - invoice.paidCents;
   const publicUrl = `${(process.env.APP_URL ?? '').replace(/\/$/, '')}/f/${invoice.publicToken}`;
   const stripeEnabled = Boolean(process.env.STRIPE_SECRET_KEY);
+  const ksefEnabled = Boolean(process.env.KSEF_TOKEN && process.env.KSEF_NIP && process.env.KSEF_MODE);
 
   return (
     <>
@@ -211,6 +224,95 @@ export default async function InvoicePage({
                   symuluje. Fakturę można opłacić przelewem: wpłatę księgujesz ręcznie powyżej.
                 </p>
               )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="KSeF" description="Integracja zewnętrzna — numer KSeF nadaje wyłącznie KSeF." />
+            <CardBody className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-ink-500">Status KSeF</span>
+                <Badge
+                  tone={
+                    invoice.ksefStatus === 'ACCEPTED'
+                      ? 'success'
+                      : invoice.ksefStatus === 'REJECTED' || invoice.ksefStatus === 'ERROR'
+                        ? 'danger'
+                        : invoice.ksefStatus === 'NOT_CONFIGURED'
+                          ? 'neutral'
+                          : 'info'
+                  }
+                >
+                  {KSEF_STATUS_LABELS[invoice.ksefStatus] ?? invoice.ksefStatus}
+                </Badge>
+              </div>
+
+              <div className="text-sm">
+                <span className="text-ink-500">Numer KSeF: </span>
+                {invoice.ksefNumber ? (
+                  <span className="tabular font-medium text-ink-900">{invoice.ksefNumber}</span>
+                ) : (
+                  <span className="text-ink-500">nie nadano (numer przydziela KSeF)</span>
+                )}
+              </div>
+
+              {invoice.ksefReferenceNumber ? (
+                <p className="text-xs text-ink-500">Numer referencyjny: {invoice.ksefReferenceNumber}</p>
+              ) : null}
+              {invoice.ksefErrorMessage ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                  {invoice.ksefErrorMessage}
+                </p>
+              ) : null}
+              {invoice.ksefUpoAvailable ? (
+                <p className="text-xs text-emerald-700">
+                  UPO pobrane{invoice.ksefUpoDownloadedAt ? ` (${formatDateTime(invoice.ksefUpoDownloadedAt)})` : ''}.
+                </p>
+              ) : null}
+
+              {!ksefEnabled ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Integracja KSeF nie jest jeszcze skonfigurowana. Status faktury nie jest wysyłany ani udawany.
+                </p>
+              ) : context.can('invoice:ksef') ? (
+                <div className="space-y-2">
+                  {invoice.ksefStatus === 'NOT_CONFIGURED' || invoice.ksefStatus === 'REJECTED' || invoice.ksefStatus === 'ERROR' ? (
+                    <form action={markInvoiceReadyForKsefAction}>
+                      <input type="hidden" name="invoiceId" value={invoice.id} />
+                      <SubmitButton variant="secondary" className="w-full" size="sm">
+                        Oznacz jako gotową
+                      </SubmitButton>
+                    </form>
+                  ) : null}
+
+                  {['READY', 'REJECTED', 'ERROR'].includes(invoice.ksefStatus) ? (
+                    <form action={submitInvoiceToKsefAction}>
+                      <input type="hidden" name="invoiceId" value={invoice.id} />
+                      <SubmitButton className="w-full" size="sm" confirm="Wysłać fakturę do KSeF?">
+                        Wyślij do KSeF
+                      </SubmitButton>
+                    </form>
+                  ) : null}
+
+                  {['SUBMITTED', 'PROCESSING', 'ACCEPTED', 'SUBMITTING'].includes(invoice.ksefStatus) ? (
+                    <form action={refreshKsefStatusAction}>
+                      <input type="hidden" name="invoiceId" value={invoice.id} />
+                      <SubmitButton variant="secondary" className="w-full" size="sm">
+                        Odśwież stan z KSeF
+                      </SubmitButton>
+                    </form>
+                  ) : null}
+
+                  {invoice.ksefStatus === 'ACCEPTED' && !invoice.ksefUpoAvailable ? (
+                    <form action={downloadKsefUpoAction}>
+                      <input type="hidden" name="invoiceId" value={invoice.id} />
+                      <SubmitButton variant="secondary" className="w-full" size="sm">
+                        Pobierz UPO
+                      </SubmitButton>
+                    </form>
+                  ) : null}
+                </div>
+              ) : null}
             </CardBody>
           </Card>
 

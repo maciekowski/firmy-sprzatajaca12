@@ -32,6 +32,7 @@ export const PERMISSIONS = [
   'invoice:read',
   'invoice:write',
   'invoice:send',
+  'invoice:ksef', // wysyłka i odświeżanie stanu KSeF
   'payment:write',
   'automation:manage',
   'analytics:read',
@@ -76,6 +77,9 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'job:complete',
     'crew:manage',
     'service:manage',
+    'invoice:read',
+    'invoice:write',
+    'invoice:send',
     'automation:manage',
     'communication:send',
     'file:upload',
