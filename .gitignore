@@ -25,3 +25,7 @@ storage/uploads/
 test-results/
 playwright-report/
 .tmp/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
