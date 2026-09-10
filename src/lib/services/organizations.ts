@@ -120,13 +120,20 @@ export async function updateMemberRole(
   return { ok: true };
 }
 
+export type InviteMemberResult =
+  | { ok: true; userId: string; invited: boolean; deliveryNote: string | null; setupLink: string | null }
+  | { ok: false; error: string };
+
 export async function inviteMember(
   ctx: ServiceContext,
   input: { email: string; role: Role },
-): Promise<{ ok: true; userId: string; invited: boolean } | { ok: false; error: string }> {
+): Promise<InviteMemberResult> {
   const email = input.email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false, error: 'Podaj poprawny adres e-mail.' };
   if (!ASSIGNABLE_ROLES.includes(input.role)) return { ok: false, error: 'Nieznana rola.' };
+
+  const [organization] = await db.select().from(organizations).where(eq(organizations.id, ctx.organizationId)).limit(1);
+  const organizationName = organization?.name ?? null;
 
   const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
   let userId = existing[0]?.id;
@@ -160,16 +167,57 @@ export async function inviteMember(
 
   await db.insert(memberships).values({ organizationId: ctx.organizationId, userId, role: input.role });
 
+  // Zaproszenie wysyłamy WYŁĄCZNIE przez skonfigurowanego providera poczty.
+  // Bez providera nie udajemy wysyłki — zwracamy link do ręcznego przekazania.
+  let deliveryNote: string | null = 'Wiadomość nie została wysłana — brak skonfigurowanej wysyłki e-mail.';
+  let setupLink: string | null = null;
+
+  if (invited) {
+    const { generateToken, hashToken, tokenExpiry } = await import('@/lib/auth/tokens');
+    const { passwordResetTokens } = await import('@/lib/db/schema');
+    const { sendCommunication } = await import('@/lib/comms/service');
+
+    const token = generateToken(32);
+    await db.insert(passwordResetTokens).values({
+      tokenHash: hashToken(token),
+      userId,
+      expiresAt: tokenExpiry(60 * 24 * 7), // 7 dni na pierwsze ustawienie hasła
+    });
+
+    const base = (process.env.APP_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+    const link = `${base}/reset-hasla/${token}`;
+
+    const result = await sendCommunication({
+      organizationId: ctx.organizationId,
+      channel: 'EMAIL',
+      to: email,
+      subject: `Zaproszenie do ${organizationName ?? 'ServiceFlow'}`,
+      body: `Dzień dobry,\n\n${ctx.userName ?? 'Administrator'} dodał Cię do zespołu w ServiceFlow (rola: ${input.role}).\n\nUstaw hasło, otwierając ten link (ważny 7 dni):\n${link}\n\nPo ustawieniu hasła zaloguj się adresem ${email}.`,
+      userId: ctx.userId,
+      category: 'SYSTEM',
+      respectConsent: false, // zaproszenie do zespołu nie jest komunikacją marketingową
+    });
+
+    if (result.delivered) {
+      deliveryNote = null;
+    } else {
+      deliveryNote = result.reason ?? deliveryNote;
+      setupLink = link;
+    }
+  } else {
+    deliveryNote = null; // użytkownik ma już konto i hasło — nic nie wysyłamy
+  }
+
   await writeAuditLog({
     organizationId: ctx.organizationId,
     userId: ctx.userId,
     action: 'members.invited',
     entityType: 'membership',
     entityId: userId,
-    meta: { email, role: input.role, createdAccount: invited },
+    meta: { email, role: input.role, createdAccount: invited, delivered: deliveryNote === null },
   });
 
-  return { ok: true, userId, invited };
+  return { ok: true, userId, invited, deliveryNote, setupLink };
 }
 
 export async function listOrganizationMembers(organizationId: string) {

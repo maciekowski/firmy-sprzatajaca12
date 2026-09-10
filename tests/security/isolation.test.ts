@@ -23,6 +23,24 @@ import { createTestCustomer, createTestOrganization, createTestService, deleteTe
 
 const BASE_URL = process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:3000';
 
+/**
+ * Serwer deweloperski może się przeładować w trakcie testów (restart procesu).
+ * Ponawiamy wyłącznie błędy SIECI — odpowiedzi serwera NIGDY nie są ponawiane,
+ * bo ich status jest wynikiem testu.
+ */
+async function fetchWithRetry(url: string, init?: RequestInit, attempts = 4): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+  throw lastError;
+}
+
 type Fixture = Awaited<ReturnType<typeof createTestOrganization>>;
 
 async function mintSession(userId: string, organizationId: string, role: 'OWNER' | 'WORKER' | 'VIEWER' | 'DISPATCHER') {
@@ -45,7 +63,10 @@ async function mintSession(userId: string, organizationId: string, role: 'OWNER'
 }
 
 async function get(path: string, cookie?: string) {
-  const response = await fetch(`${BASE_URL}${path}`, { headers: cookie ? { cookie } : {}, redirect: 'manual' });
+  const response = await fetchWithRetry(`${BASE_URL}${path}`, {
+    headers: cookie ? { cookie } : {},
+    redirect: 'manual',
+  });
   const body = await response.text().catch(() => '');
   return { status: response.status, body, location: response.headers.get('location') };
 }

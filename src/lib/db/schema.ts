@@ -403,9 +403,14 @@ export const invitations = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
     acceptedById: text('accepted_by_id').references(() => users.id, { onDelete: 'set null' }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [index('invitations_org_idx').on(t.organizationId), index('invitations_email_idx').on(t.email)],
+  (t) => [
+    index('invitations_org_idx').on(t.organizationId),
+    index('invitations_email_idx').on(t.email),
+    index('invitations_org_email_idx').on(t.organizationId, t.email),
+  ],
 );
 
 export const orgSettings = pgTable(
@@ -462,6 +467,9 @@ export const customers = pgTable(
     emailMarketingOptIn: boolean('email_marketing_opt_in').default(false).notNull(),
     consentBasis: text('consent_basis'),
     consentNote: text('consent_note'),
+    /** token publicznego konta klienta (historia ofert, zleceń i faktur). NULL = brak dostępu. */
+    portalToken: text('portal_token').unique(),
+    portalTokenCreatedAt: timestamp('portal_token_created_at', { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -1646,3 +1654,4 @@ export type FileRecord = typeof files.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type MessageTemplate = typeof messageTemplates.$inferSelect;
 export type DocumentCounter = typeof documentCounters.$inferSelect;
+export type Invitation = typeof invitations.$inferSelect;

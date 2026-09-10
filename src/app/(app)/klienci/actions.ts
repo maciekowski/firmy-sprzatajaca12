@@ -9,6 +9,8 @@ import { requirePermissionOrThrow } from '@/lib/auth/guards';
 import { writeActivity, writeAuditLog } from '@/lib/audit';
 import { customerAddressSchema, customerContactSchema, customerSchema, zodToFieldErrors, type FormState } from '@/lib/validation';
 import { getCustomer } from '@/lib/data/customers';
+import { ensureCustomerPortalToken, revokeCustomerPortalToken } from '@/lib/services/portal';
+import { rateLimit } from '@/lib/rate-limit';
 
 function displayNameFor(input: { type: string; firstName?: string; lastName?: string; companyName?: string }): string {
   if (input.type === 'COMPANY') return (input.companyName ?? '').trim() || 'Klient firmowy';
@@ -329,4 +331,44 @@ export async function updateCustomerPreferencesAction(_prev: FormState, formData
 
   revalidatePath(`/klienci/${customerId}`);
   return { ok: true, message: 'Preferencje wiadomości zapisane.' };
+}
+
+export type PortalLinkState = { ok: boolean; message?: string; error?: string; token?: string };
+
+/**
+ * Wygenerowanie (lub pobranie) prywatnego linku do konta klienta.
+ * Link jest jedynym sposobem dostępu — klient nie zakłada hasła.
+ */
+export async function createPortalLinkAction(_prev: PortalLinkState, formData: FormData): Promise<PortalLinkState> {
+  const context = await requirePermissionOrThrow('customer:write');
+  const customerId = String(formData.get('customerId') ?? '');
+
+  const limit = rateLimit(`portal-link:${context.organization.id}`, 20, 60_000);
+  if (!limit.allowed) {
+    return { ok: false, error: `Zbyt wiele prób. Spróbuj ponownie za ${limit.retryAfterSeconds} s.` };
+  }
+
+  const result = await ensureCustomerPortalToken(
+    { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name },
+    customerId,
+  );
+  if (!result.ok) return { ok: false, error: result.error };
+
+  revalidatePath(`/klienci/${customerId}`);
+  return { ok: true, message: 'Link do konta klienta jest aktywny.', token: result.data.token };
+}
+
+/** Odwołanie dostępu do konta klienta — stary link przestaje działać. */
+export async function revokePortalLinkAction(_prev: PortalLinkState, formData: FormData): Promise<PortalLinkState> {
+  const context = await requirePermissionOrThrow('customer:write');
+  const customerId = String(formData.get('customerId') ?? '');
+
+  const result = await revokeCustomerPortalToken(
+    { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name },
+    customerId,
+  );
+  if (!result.ok) return { ok: false, error: result.error };
+
+  revalidatePath(`/klienci/${customerId}`);
+  return { ok: true, message: 'Dostęp do konta klienta został odwołany (stary link nie działa).' };
 }

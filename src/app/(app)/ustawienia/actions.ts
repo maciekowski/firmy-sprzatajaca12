@@ -67,12 +67,23 @@ export async function inviteMemberAction(_prev: SettingsState, formData: FormDat
   if (!result.ok) return { ok: false, error: result.error };
 
   revalidatePath('/ustawienia');
-  return {
-    ok: true,
-    message: result.invited
-      ? 'Dodano osobę do firmy. Konto nie ma jeszcze hasła — ustaw je przy pierwszym logowaniu (reset hasła).'
-      : 'Dodano istniejącego użytkownika do firmy.',
-  };
+
+  if (result.invited) {
+    if (result.deliveryNote) {
+      return {
+        ok: true,
+        message: `Dodano osobę do firmy. ${result.deliveryNote}${
+          result.setupLink ? ` Przekaż jej link do ustawienia hasła: ${result.setupLink}` : ''
+        }`,
+      };
+    }
+    return {
+      ok: true,
+      message: 'Dodano osobę do firmy i wysłano zaproszenie e-mailem z linkiem do ustawienia hasła.',
+    };
+  }
+
+  return { ok: true, message: 'Dodano istniejącego użytkownika do firmy (loguje się swoim hasłem).' };
 }
 
 export async function changeRoleAction(formData: FormData): Promise<void> {

@@ -9,6 +9,7 @@ import { formatMoney } from '@/lib/money';
 import { formatDate, formatDateTime } from '@/lib/constants';
 import { INVOICE_STATUS_TONES, JOB_STATUS_TONES, QUOTE_STATUS_TONES } from '@/lib/constants';
 import { CustomerPreferencesForm } from '@/components/customers/preferences-form';
+import { CustomerPortalCard } from '@/components/customers/portal-card';
 
 export const metadata = { title: 'Klient' };
 
@@ -91,6 +92,21 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
                   <p className="mt-1 whitespace-pre-wrap text-sm text-ink-800">{customer.notes}</p>
                 </div>
               ) : null}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Konto klienta" description="Prywatny link dla klienta — bez logowania widzi swoje oferty, zlecenia i faktury." />
+            <CardBody>
+              {context.can('customer:write') ? (
+                <CustomerPortalCard
+                  customerId={customer.id}
+                  portalToken={customer.portalToken ?? null}
+                  appUrl={process.env.APP_URL ?? (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000')}
+                />
+              ) : (
+                <p className="text-sm text-ink-500">Brak uprawnień do zarządzania dostępem klienta.</p>
+              )}
             </CardBody>
           </Card>
 

@@ -50,12 +50,26 @@ analityka i asystent.
    wiadomości (`idempotencyKey`) nie wykonują się dwa razy.
 6. **Paginacja i limity** — listy są stronicowane w SQL, a endpointy publiczne i wysyłkowe
    mają ograniczenia liczby żądań (rate limiting).
+7. **Dostęp bez hasła tam, gdzie to wystarcza** — klient i zaproszony pracownik dostają
+   jednorazowy token (w bazie wyłącznie skrót SHA-256), który można w każdej chwili odwołać.
 
 ## Role i uprawnienia
 
 `OWNER`, `ADMIN`, `DISPATCHER`, `WORKER`, `VIEWER`. Uprawnienia są sprawdzane serwerem
 (`src/lib/authz/permissions.ts` + `src/lib/auth/guards.ts`). Pracownik (`job:self`) realizuje
 wyłącznie zlecenia, do których jest przypisany.
+
+## Konto klienta i zaproszenia do zespołu
+
+- **Konto klienta** (`/moje/<token>`) — klient widzi swoje oferty, zlecenia i faktury bez logowania.
+  Dokumenty w statusie roboczym (DRAFT) nie są publikowane. Link generuje się na karcie klienta
+  i można go jednorazowo odwołać (`customer.portal_link_created` / `..._revoked` w audycie).
+- **Zaproszenia do zespołu** — dodanie osoby bez konta tworzy konto i wysyła zaproszenie
+  z linkiem do ustawienia hasła. Bez skonfigurowanej poczty system **nie udaje wysyłki**:
+  zwraca powód i link do przekazania ręcznie. Token zaproszenia (`/zaproszenie/<token>`)
+  działa jednorazowo, wygasa po 14 dniach i jest weryfikowany pod kątem zgodności adresu e-mail.
+- **PWA** — aplikacja jest instalowalna (`manifest.webmanifest` + service worker), a w razie
+  braku sieci pracownik w terenie widzi stronę offline z informacją, że zapis wymaga połączenia.
 
 ## Subskrypcja i okres próbny
 
@@ -77,12 +91,13 @@ wyłącznie zlecenia, do których jest przypisany.
 ## Testy
 
 ```bash
-npm test                      # 148 testów (wymaga uruchomionej bazy i serwera)
+npm test                      # 180 testów (wymaga uruchomionej bazy i serwera)
 npx vitest run tests/unit     # reguły: ceny, pieniądze, subskrypcja, zgody, paginacja
 npx vitest run tests/security # IDOR, role, webhooki, rate limiting — „brak dostępu = test zaliczony”
 ```
 
-Zakres: silnik cenowy i podatki, płatności i idempotencja webhooków, automatyzacje (kolejka,
-warunki, logi), opinie, analityka (agregaty SQL), paginacja, czas pracy, komunikacja (statusy
-dostarczenia), KSeF, AI (silnik regułowy), izolacja danych, uprawnienia ról oraz renderowanie
+Zakres: silnik cenowy i podatki, płatności i idempotencja webhooków, wysyłka faktur e-mailem,
+automatyzacje (kolejka, warunki, logi), opinie, analityka (agregaty SQL), paginacja, czas pracy,
+komunikacja (statusy dostarczenia), konto klienta, zaproszenia do zespołu, KSeF, AI (silnik
+regułowy), izolacja danych, uprawnienia ról, wydajność przy 2000 dokumentach oraz renderowanie
 każdej strony (HTTP).
