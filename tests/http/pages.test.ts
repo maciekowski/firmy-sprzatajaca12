@@ -129,6 +129,11 @@ describe('strony aplikacji (HTTP)', () => {
       '/leady/nowy',
       '/zapytania',
       '/zapytania/nowy',
+      '/automatyzacje',
+      '/analityka',
+      '/komunikacja',
+      '/opinie',
+      '/asystent',
     ];
     for (const path of paths) {
       const response = await get(path, cookieA);
