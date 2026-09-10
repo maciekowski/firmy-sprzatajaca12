@@ -1,11 +1,11 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { CreditCard, Download, Send } from 'lucide-react';
+import { CreditCard, Download, Mail, Send } from 'lucide-react';
 import { requirePermission } from '@/lib/auth/guards';
 import { getInvoice, getInvoiceItems, getInvoicePayments } from '@/lib/services/invoices';
 import { Badge, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Stat } from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
-import { cancelInvoiceAction, markInvoiceSentAction, payInvoiceByCardAction, recordPaymentAction } from '@/app/(app)/faktury/actions';
+import { cancelInvoiceAction, markInvoiceSentAction, payInvoiceByCardAction, recordPaymentAction, sendInvoiceEmailAction } from '@/app/(app)/faktury/actions';
 import {
   downloadKsefUpoAction,
   markInvoiceReadyForKsefAction,
@@ -43,11 +43,11 @@ export default async function InvoicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ wynik?: string; blad?: string; platnosc?: string }>;
+  searchParams: Promise<{ wynik?: string; blad?: string; platnosc?: string; uwaga?: string }>;
 }) {
   const context = await requirePermission('invoice:read');
   const { id } = await params;
-  const { wynik, blad, platnosc } = await searchParams;
+  const { wynik, blad, platnosc, uwaga } = await searchParams;
 
   const invoice = await getInvoice(context.organization.id, id);
   if (!invoice) notFound();
@@ -84,6 +84,15 @@ export default async function InvoicePage({
                 </SubmitButton>
               </form>
             ) : null}
+            {context.can('invoice:send') && invoice.status !== 'CANCELLED' ? (
+              <form action={sendInvoiceEmailAction} className="inline-flex">
+                <input type="hidden" name="invoiceId" value={invoice.id} />
+                <input type="hidden" name="channel" value="EMAIL" />
+                <SubmitButton variant="secondary">
+                  <Mail className="h-4 w-4" /> Wyślij e-mailem
+                </SubmitButton>
+              </form>
+            ) : null}
           </>
         }
       />
@@ -97,6 +106,11 @@ export default async function InvoicePage({
         ) : null}
         {platnosc && PLATNOSC[platnosc] ? (
           <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">{PLATNOSC[platnosc]}</div>
+        ) : null}
+        {uwaga ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <strong>Uwaga:</strong> {uwaga}
+          </div>
         ) : null}
       </div>
 

@@ -18,6 +18,9 @@ import {
 import { nextDocumentNumber } from '@/lib/numbering';
 import { newId } from '@/lib/db/schema';
 import { writeAuditLog } from '@/lib/audit';
+import { getTemplate, sendCommunication } from '@/lib/comms/service';
+import { DEFAULT_TEMPLATES } from '@/lib/comms/templates';
+import { formatMoney } from '@/lib/money';
 import { enqueueAutomations } from '@/lib/automation/engine';
 import type { ServiceContext, OperationResult } from './jobs';
 
@@ -214,6 +217,121 @@ export async function getInvoice(organizationId: string, invoiceId: string) {
 export async function getInvoiceByToken(token: string) {
   const rows = await db.select().from(invoices).where(eq(invoices.publicToken, token)).limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Wysyłka faktury do klienta (e-mail lub SMS).
+ *
+ * Zasady:
+ *  - wiadomość idzie WYŁĄCZNIE przez skonfigurowanego providera — bez providera
+ *    zapisujemy status SKIPPED_NO_PROVIDER i zwracamy jawną informację
+ *    (brak „wysłano” na podstawie samego kliknięcia),
+ *  - kategoria wiadomości to TRANSACTIONAL (wynika z realizacji usługi),
+ *  - wysyłka jest idempotentna, gdy podano `idempotencyKey` (np. z automatyzacji).
+ */
+export async function sendInvoiceEmail(
+  ctx: ServiceContext,
+  invoiceId: string,
+  options: { channel?: 'EMAIL' | 'SMS'; message?: string | null; idempotencyKey?: string | null } = {},
+): Promise<OperationResult<Invoice & { deliveryNote?: string }>> {
+  const invoice = await getInvoice(ctx.organizationId, invoiceId);
+  if (!invoice) return { ok: false, error: 'Nie znaleziono faktury.' };
+  if (invoice.status === 'CANCELLED') return { ok: false, error: 'Faktura jest anulowana.' };
+
+  const [organization] = await db.select().from(organizations).where(eq(organizations.id, ctx.organizationId)).limit(1);
+  const [customer] = await db
+    .select()
+    .from(customers)
+    .where(and(eq(customers.id, invoice.customerId), eq(customers.organizationId, ctx.organizationId)))
+    .limit(1);
+
+  const base = (process.env.APP_URL ?? '').replace(/\/$/, '');
+  const link = `${base}/f/${invoice.publicToken}`;
+  const template = await getTemplate(ctx.organizationId, 'invoice_ready');
+  const fallback = DEFAULT_TEMPLATES.invoice_ready;
+  const currency = organization?.currency ?? 'PLN';
+
+  const variables = {
+    klient: invoice.buyerName,
+    firma: organization?.name ?? 'ServiceFlow',
+    numer: invoice.number,
+    kwota: formatMoney(invoice.totalCents, currency),
+    link,
+    termin: invoice.dueDate ? invoice.dueDate.toLocaleDateString('pl-PL') : '',
+  };
+
+  const channel = options.channel ?? 'EMAIL';
+  const recipient = channel === 'EMAIL' ? customer?.email : customer?.phone;
+  let deliveryNote: string | undefined;
+
+  if (recipient) {
+    const result = await sendCommunication({
+      organizationId: ctx.organizationId,
+      channel,
+      to: recipient,
+      subject: template?.subject ?? fallback.subject,
+      body: options.message ?? template?.body ?? fallback.body,
+      templateKey: 'invoice_ready',
+      variables,
+      customerId: invoice.customerId,
+      invoiceId: invoice.id,
+      userId: ctx.userId,
+      category: 'TRANSACTIONAL',
+      emailOptIn: customer?.emailOptIn ?? true,
+      smsOptIn: customer?.smsOptIn ?? false,
+      transactionalOptIn: customer?.emailTransactionalOptIn ?? true,
+      systemOptIn: customer?.emailSystemOptIn ?? true,
+      automationOptIn: customer?.emailAutomationOptIn ?? true,
+      marketingOptIn: customer?.emailMarketingOptIn ?? false,
+      idempotencyKey: options.idempotencyKey ?? null,
+    });
+
+    if (!result.delivered) deliveryNote = result.reason ?? 'Wiadomość nie została wysłana.';
+    if (result.deduplicated) deliveryNote = 'Wiadomość była już wysłana wcześniej (nie wysłano ponownie).';
+  } else {
+    deliveryNote =
+      channel === 'EMAIL'
+        ? 'Klient nie ma adresu e-mail — fakturę można przekazać linkiem.'
+        : 'Klient nie ma numeru telefonu — fakturę można przekazać linkiem.';
+  }
+
+  const [updated] = await db
+    .update(invoices)
+    .set({
+      status: invoice.paidCents > 0 ? 'PARTIALLY_PAID' : 'SENT',
+      sentAt: invoice.sentAt ?? new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(invoices.id, invoiceId), eq(invoices.organizationId, ctx.organizationId)))
+    .returning();
+
+  await db.insert(activities).values({
+    organizationId: ctx.organizationId,
+    entityType: 'invoice',
+    entityId: invoiceId,
+    type: 'sent',
+    message: `Wysłano fakturę ${invoice.number}${deliveryNote ? ` — ${deliveryNote}` : ''}`,
+    userId: ctx.userId,
+    userName: ctx.userName,
+  });
+
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'invoice.sent_email',
+    entityType: 'invoice',
+    entityId: invoiceId,
+    meta: { number: invoice.number, channel, delivered: !deliveryNote, deliveryNote: deliveryNote ?? null },
+  });
+
+  await enqueueAutomations({
+    organizationId: ctx.organizationId,
+    trigger: 'INVOICE_SENT',
+    targetType: 'invoice',
+    targetId: invoiceId,
+  });
+
+  return { ok: true, data: { ...updated, deliveryNote } };
 }
 
 export async function getInvoiceItems(invoiceId: string) {

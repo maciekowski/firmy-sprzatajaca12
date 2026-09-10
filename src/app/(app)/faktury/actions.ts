@@ -3,9 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requirePermissionOrThrow } from '@/lib/auth/guards';
-import { cancelInvoice, createInvoice, createInvoiceFromJob, getInvoice, markInvoiceSent, recordPayment } from '@/lib/services/invoices';
+import { cancelInvoice, createInvoice, createInvoiceFromJob, getInvoice, markInvoiceSent, recordPayment, sendInvoiceEmail } from '@/lib/services/invoices';
 import { enqueueAutomations } from '@/lib/automation/engine';
 import { createInvoiceCheckoutSession } from '@/lib/billing/stripe';
+import { rateLimit } from '@/lib/rate-limit';
 
 const PAYMENT_METHODS = new Set(['CASH', 'BANK_TRANSFER', 'CARD', 'STRIPE', 'OTHER']);
 
@@ -150,4 +151,40 @@ export async function payInvoiceByCardAction(formData: FormData): Promise<void> 
   }
 
   redirect(result.url);
+}
+
+/**
+ * Wysyłka faktury do klienta e-mailem (opcjonalnie SMS).
+ * Status wysyłki jest prawdziwy: bez providera wiadomość NIE zostaje wysłana,
+ * a użytkownik widzi powód (patrz sekcja Komunikacja).
+ */
+export async function sendInvoiceEmailAction(formData: FormData): Promise<void> {
+  const context = await requirePermissionOrThrow('invoice:send');
+  const invoiceId = String(formData.get('invoiceId') ?? '');
+
+  const limit = rateLimit(`send-invoice:${context.organization.id}`, 20, 60_000);
+  if (!limit.allowed) {
+    redirect(`/faktury/${invoiceId}?blad=${encodeURIComponent(`Zbyt wiele wysyłek. Spróbuj ponownie za ${limit.retryAfterSeconds} s.`)}`);
+  }
+
+  const invoice = await getInvoice(context.organization.id, invoiceId);
+  if (!invoice) redirect('/faktury?blad=Nie%20znaleziono%20faktury');
+
+  const channelRaw = String(formData.get('channel') ?? 'EMAIL');
+  const channel: 'EMAIL' | 'SMS' = channelRaw === 'SMS' ? 'SMS' : 'EMAIL';
+  const message = String(formData.get('message') ?? '') || null;
+
+  const result = await sendInvoiceEmail(
+    { organizationId: context.organization.id, userId: context.user.id, userName: context.user.name },
+    invoiceId,
+    { channel, message },
+  );
+
+  if (!result.ok) redirect(`/faktury/${invoiceId}?blad=${encodeURIComponent(result.error)}`);
+
+  const note = result.data?.deliveryNote;
+  revalidatePath(`/faktury/${invoiceId}`);
+  revalidatePath('/faktury');
+  revalidatePath('/komunikacja');
+  redirect(`/faktury/${invoiceId}?wynik=wyslano${note ? `&uwaga=${encodeURIComponent(note)}` : ''}`);
 }
