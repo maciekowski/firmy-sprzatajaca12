@@ -4,6 +4,7 @@ import { db } from '@/lib/db/client';
 import { communications } from '@/lib/db/schema';
 import { verifyResendSignature } from '@/lib/comms/resend';
 import { claimWebhookEvent, markWebhookError } from '@/lib/webhooks';
+import { rateLimit } from '@/lib/rate-limit';
 
 /**
  * Webhook Resend — aktualizuje status wiadomości na podstawie zdarzeń providera.
@@ -38,6 +39,13 @@ const STATUS_BY_EVENT: Record<string, 'SENT' | 'DELIVERED' | 'FAILED' | 'BOUNCED
 };
 
 export async function POST(request: NextRequest) {
+  // ochrona przed zalewem fałszywych zdarzeń (weryfikacja podpisu jest dalej)
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? request.headers.get('x-real-ip') ?? 'unknown';
+  const limit = rateLimit(`webhook:resend:${ip}`, 120, 60_000);
+  if (!limit.allowed) {
+    return NextResponse.json({ error: 'Zbyt wiele żądań.' }, { status: 429, headers: { 'retry-after': String(limit.retryAfterSeconds) } });
+  }
+
   const payload = await request.text();
 
   const id = request.headers.get('svix-id');

@@ -26,6 +26,7 @@ import {
 import { nextDocumentNumber } from '@/lib/numbering';
 import { organizations } from '@/lib/db/schema';
 import type { ServiceContext } from './estimates';
+import { writeAuditLog } from '@/lib/audit';
 
 export type { ServiceContext };
 
@@ -408,6 +409,15 @@ export async function updateJobStatus(
     meta: { from: job.status, to: status, note: note ?? null },
   });
 
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'job.status_changed',
+    entityType: 'job',
+    entityId: jobId,
+    meta: { from: job.status, to: status, note: note ?? null },
+  });
+
   return { ok: true, data: updated };
 }
 
@@ -485,6 +495,15 @@ export async function completeJob(
     message: 'Zlecenie zakończone',
     userId: ctx.userId,
     userName: ctx.userName,
+  });
+
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'job.completed',
+    entityType: 'job',
+    entityId: jobId,
+    meta: { number: updated.number, note: options.note ?? null },
   });
 
   return { ok: true, data: updated };

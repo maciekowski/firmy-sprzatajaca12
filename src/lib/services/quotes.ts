@@ -138,6 +138,15 @@ export async function sendQuote(
     targetId: quoteId,
   });
 
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'quote.sent',
+    entityType: 'quote',
+    entityId: quoteId,
+    meta: { number: quote.number, channel, delivered: !deliveryNote, deliveryNote: deliveryNote ?? null },
+  });
+
   return { ok: true, data: { ...updated, deliveryNote } };
 }
 

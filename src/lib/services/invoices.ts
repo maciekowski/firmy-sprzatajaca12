@@ -124,6 +124,16 @@ export async function createInvoice(ctx: ServiceContext, draft: InvoiceDraft): P
     userName: ctx.userName,
   });
 
+  // zdarzenie finansowe — musi być rozliczalne w logu audytowym
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'invoice.created',
+    entityType: 'invoice',
+    entityId: invoice.id,
+    meta: { number, totalCents: invoice.totalCents, jobId: draft.jobId ?? null },
+  });
+
   return { ok: true, data: invoice };
 }
 
@@ -229,6 +239,15 @@ export async function markInvoiceSent(ctx: ServiceContext, invoiceId: string): P
     .where(and(eq(invoices.id, invoiceId), eq(invoices.organizationId, ctx.organizationId)))
     .returning();
 
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'invoice.sent',
+    entityType: 'invoice',
+    entityId: invoiceId,
+    meta: { number: invoice.number },
+  });
+
   return { ok: true, data: updated };
 }
 
@@ -288,6 +307,15 @@ export async function recordPayment(
     userName: ctx.userName,
   });
 
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'payment.recorded',
+    entityType: 'invoice',
+    entityId: invoiceId,
+    meta: { amountCents: input.amountCents, method: input.method, reference: input.reference ?? null, status },
+  });
+
   return { ok: true, data: updated };
 }
 
@@ -301,6 +329,15 @@ export async function cancelInvoice(ctx: ServiceContext, invoiceId: string): Pro
     .set({ status: 'CANCELLED', cancelledAt: new Date(), updatedAt: new Date() })
     .where(and(eq(invoices.id, invoiceId), eq(invoices.organizationId, ctx.organizationId)))
     .returning();
+
+  await writeAuditLog({
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    action: 'invoice.cancelled',
+    entityType: 'invoice',
+    entityId: invoiceId,
+    meta: { number: invoice.number, totalCents: invoice.totalCents },
+  });
 
   return { ok: true, data: updated };
 }

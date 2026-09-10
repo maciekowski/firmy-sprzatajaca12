@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requirePermissionOrThrow } from '@/lib/auth/guards';
 import { downloadKsefUpo, markInvoiceReadyForKsef, refreshKsefStatus, submitInvoiceToKsef } from '@/lib/ksef/service';
+import { writeAuditLog } from '@/lib/audit';
 
 function back(invoiceId: string, params: Record<string, string>): never {
   const query = new URLSearchParams(params).toString();
@@ -16,6 +17,14 @@ export async function markInvoiceReadyForKsefAction(formData: FormData): Promise
   const invoiceId = String(formData.get('invoiceId') ?? '');
 
   const result = await markInvoiceReadyForKsef(ctx, invoiceId);
+  await writeAuditLog({
+    organizationId: context.organization.id,
+    userId: context.user.id,
+    action: 'invoice.ksef_marked_ready',
+    entityType: 'invoice',
+    entityId: invoiceId,
+    meta: { ok: result.ok },
+  });
   revalidatePath(`/faktury/${invoiceId}`);
   back(invoiceId, result.ok ? { wynik: 'ksef-gotowa' } : { blad: result.error });
 }
@@ -26,6 +35,14 @@ export async function submitInvoiceToKsefAction(formData: FormData): Promise<voi
   const invoiceId = String(formData.get('invoiceId') ?? '');
 
   const result = await submitInvoiceToKsef(ctx, invoiceId);
+  await writeAuditLog({
+    organizationId: context.organization.id,
+    userId: context.user.id,
+    action: 'invoice.ksef_submitted',
+    entityType: 'invoice',
+    entityId: invoiceId,
+    meta: { ok: result.ok, status: result.ok ? result.status : null, error: result.ok ? null : (result as { error?: string }).error ?? null },
+  });
   revalidatePath(`/faktury/${invoiceId}`);
   if (!result.ok) back(invoiceId, { blad: result.error });
   const finalStatus = result.status;
@@ -39,6 +56,14 @@ export async function refreshKsefStatusAction(formData: FormData): Promise<void>
   const invoiceId = String(formData.get('invoiceId') ?? '');
 
   const result = await refreshKsefStatus(ctx, invoiceId);
+  await writeAuditLog({
+    organizationId: context.organization.id,
+    userId: context.user.id,
+    action: 'invoice.ksef_refreshed',
+    entityType: 'invoice',
+    entityId: invoiceId,
+    meta: { ok: result.ok },
+  });
   revalidatePath(`/faktury/${invoiceId}`);
   back(invoiceId, result.ok ? { wynik: 'ksef-stan' } : { blad: result.error });
 }
@@ -49,6 +74,14 @@ export async function downloadKsefUpoAction(formData: FormData): Promise<void> {
   const invoiceId = String(formData.get('invoiceId') ?? '');
 
   const result = await downloadKsefUpo(ctx, invoiceId);
+  await writeAuditLog({
+    organizationId: context.organization.id,
+    userId: context.user.id,
+    action: 'invoice.ksef_upo_downloaded',
+    entityType: 'invoice',
+    entityId: invoiceId,
+    meta: { ok: result.ok },
+  });
   revalidatePath(`/faktury/${invoiceId}`);
   back(invoiceId, result.ok ? { wynik: 'ksef-upo' } : { blad: result.error });
 }
