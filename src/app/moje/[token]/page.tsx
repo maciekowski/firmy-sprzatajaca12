@@ -49,9 +49,15 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
   const data = await getCustomerPortalData(token);
   if (!data) notFound();
 
-  const toPay = data.invoices
-    .filter((invoice) => invoice.status !== 'PAID' && invoice.status !== 'CANCELLED')
-    .reduce((sum, invoice) => sum + (invoice.totalCents - invoice.paidCents), 0);
+  const unpaid = data.invoices.filter((invoice) => invoice.status !== 'PAID' && invoice.status !== 'CANCELLED');
+  // nie sumujemy różnych walut — pokazujemy je osobno (brak wymyślonych kursów)
+  const currencies = Array.from(new Set(unpaid.map((invoice) => invoice.currency)));
+  const toPayByCurrency = currencies.map((currency) => ({
+    currency,
+    amountCents: unpaid
+      .filter((invoice) => invoice.currency === currency)
+      .reduce((sum, invoice) => sum + (invoice.totalCents - invoice.paidCents), 0),
+  }));
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10">
@@ -63,11 +69,11 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
         </p>
       </header>
 
-      {toPay > 0 ? (
-        <div className="mb-8 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Do zapłaty: <strong>{formatMoney(toPay, 'PLN')}</strong>
+      {toPayByCurrency.filter((row) => row.amountCents > 0).map((row) => (
+        <div key={row.currency} className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Do zapłaty: <strong>{formatMoney(row.amountCents, row.currency)}</strong>
         </div>
-      ) : null}
+      ))}
 
       <section className="mb-10">
         <h2 className="mb-3 text-lg font-semibold text-ink-900">Oferty</h2>
@@ -87,7 +93,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-ink-900">{formatMoney(quote.totalCents, 'PLN')}</span>
+                  <span className="text-sm font-medium text-ink-900">{formatMoney(quote.totalCents, quote.currency)}</span>
                   <span className={`rounded-full px-2 py-1 text-xs ${toneFor(quote.status)}`}>
                     {QUOTE_STATUS[quote.status] ?? quote.status}
                   </span>
@@ -142,7 +148,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-ink-900">{formatMoney(invoice.totalCents, 'PLN')}</span>
+                  <span className="text-sm font-medium text-ink-900">{formatMoney(invoice.totalCents, invoice.currency)}</span>
                   <span className={`rounded-full px-2 py-1 text-xs ${toneFor(invoice.status)}`}>
                     {INVOICE_STATUS[invoice.status] ?? invoice.status}
                   </span>

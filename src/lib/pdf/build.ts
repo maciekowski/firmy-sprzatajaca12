@@ -70,7 +70,7 @@ export async function buildQuotePdf(organizationId: string, quoteId: string): Pr
     },
     notes: quote.notes,
     terms: quote.terms,
-    currency: organization.currency,
+    currency: quote.currency ?? organization.currency,
     footerNote: `${organization.name} · oferta wygenerowana w ServiceFlow`,
   };
 
@@ -123,7 +123,7 @@ export async function buildInvoicePdf(organizationId: string, invoiceId: string)
     },
     notes: invoice.notes,
     terms: `Termin płatności: ${invoice.dueDate.toLocaleDateString('pl-PL')}`,
-    currency: organization.currency,
+    currency: invoice.currency ?? organization.currency,
     footerNote: `${organization.name} · faktura wygenerowana w ServiceFlow`,
   };
 

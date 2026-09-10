@@ -57,6 +57,13 @@
       "when": 1789079886987,
       "tag": "0007_dashing_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789080791174,
+      "tag": "0008_vengeful_iron_monger",
+      "breakpoints": true
     }
   ]
 }

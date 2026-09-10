@@ -130,6 +130,7 @@ export async function createJobFromQuote(ctx: ServiceContext, quoteId: string): 
 export async function createJob(ctx: ServiceContext, draft: JobDraft): Promise<OperationResult<Job>> {
   const orgRows = await db.select().from(organizations).where(eq(organizations.id, ctx.organizationId)).limit(1);
   const organization = orgRows[0];
+  const organizationCurrency = organization?.currency ?? 'PLN';
   const number = await nextDocumentNumber(ctx.organizationId, organization?.jobPrefix ?? 'ZL');
 
   const address = draft.addressId
@@ -143,6 +144,7 @@ export async function createJob(ctx: ServiceContext, draft: JobDraft): Promise<O
       number,
       customerId: draft.customerId,
       addressId: draft.addressId ?? null,
+      currency: organizationCurrency,
       quoteId: draft.quoteId ?? null,
       estimateId: draft.estimateId ?? null,
       crewId: draft.crewId ?? null,

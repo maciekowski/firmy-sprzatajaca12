@@ -32,7 +32,7 @@ export default async function PublicInvoicePage({
   ]);
 
   const organization = orgRows[0];
-  const currency = organization?.currency ?? 'PLN';
+  const currency = invoice.currency ?? organization?.currency ?? 'PLN';
   const remaining = invoice.totalCents - invoice.paidCents;
   const stripe = stripeStatus();
 

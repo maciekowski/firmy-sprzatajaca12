@@ -23,6 +23,12 @@ export type Analytics = {
   workedHours: number;
   revenueByMonth: { month: string; amountCents: number }[];
   topServices: { name: string; count: number; valueCents: number }[];
+  /**
+   * Przychód w podziale na waluty dokumentów.
+   * System NIE przelicza walut po kursie — sumowanie różnych walut byłoby kłamstwem,
+   * dlatego kwoty są raportowane osobno dla każdej z nich.
+   */
+  revenueByCurrency: { currency: string; invoicedCents: number; paidCents: number }[];
 };
 
 function toNumber(value: unknown): number {
@@ -46,6 +52,17 @@ export async function getAnalytics(organizationId: string, months = 6): Promise<
     })
     .from(invoices)
     .where(eq(invoices.organizationId, organizationId));
+
+  // przychód w podziale na waluty (bez przeliczania kursami)
+  const perCurrency = await db
+    .select({
+      currency: invoices.currency,
+      invoiced: sql<string>`coalesce(sum(${invoices.totalCents}), 0)::text`,
+      paid: sql<string>`coalesce(sum(${invoices.paidCents}), 0)::text`,
+    })
+    .from(invoices)
+    .where(and(eq(invoices.organizationId, organizationId), ne(invoices.status, 'CANCELLED')))
+    .groupBy(invoices.currency);
 
   const [jobTotals] = await db
     .select({
@@ -126,6 +143,11 @@ export async function getAnalytics(organizationId: string, months = 6): Promise<
     workedHours: Math.round((toNumber(timeTotals?.seconds) / 3600) * 10) / 10,
     revenueByMonth: monthlyRows.map((row) => ({ month: row.month, amountCents: toNumber(row.amount) })),
     topServices: topServiceRows.map((row) => ({ name: row.name, count: toNumber(row.count), valueCents: toNumber(row.value) })),
+    revenueByCurrency: perCurrency.map((row) => ({
+      currency: row.currency ?? 'PLN',
+      invoicedCents: toNumber(row.invoiced),
+      paidCents: toNumber(row.paid),
+    })),
   };
 }
 

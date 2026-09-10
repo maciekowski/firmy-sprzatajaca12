@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import { Alert, Field, Input, Select, Textarea } from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
+import { SUPPORTED_CURRENCIES } from '@/lib/money';
 import { inviteMemberAction, saveSettingsAction, type SettingsState } from '@/app/(app)/ustawienia/actions';
 
 const initialState: SettingsState = { ok: false };
@@ -89,11 +90,11 @@ export function SettingsForm({ organization }: { organization: OrgSettings }) {
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <Field label="Waluta">
             <Select name="currency" defaultValue={organization.currency}>
-              <option value="PLN">PLN</option>
-              <option value="EUR">EUR</option>
-              <option value="USD">USD</option>
-              <option value="GBP">GBP</option>
-              <option value="CZK">CZK</option>
+              {SUPPORTED_CURRENCIES.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label="Domyślna stawka VAT (%)">

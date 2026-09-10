@@ -118,6 +118,24 @@ export function formatAmount(cents: number): string {
 }
 
 /** Grosze -> "1 234,56 zł" */
+/**
+ * Waluty obsługiwane przez system.
+ * Wszystkie są rozliczane w setnych częściach (grosze/centy) — dlatego na liście
+ * nie ma walut bez miejsc po przecinku (np. JPY): ich zapis w groszach byłby błędny.
+ */
+export const SUPPORTED_CURRENCIES = ['PLN', 'EUR', 'USD', 'GBP', 'CZK'] as const;
+export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
+
+export function isSupportedCurrency(value: string | null | undefined): value is SupportedCurrency {
+  return Boolean(value && (SUPPORTED_CURRENCIES as readonly string[]).includes(value));
+}
+
+/** Normalizacja waluty firmy — nieznane kody nie są „poprawiane” po cichu. */
+export function normalizeCurrency(value: string | null | undefined): SupportedCurrency {
+  const upper = (value ?? '').trim().toUpperCase();
+  return isSupportedCurrency(upper) ? upper : 'PLN';
+}
+
 export function formatMoney(cents: number, currency = 'PLN'): string {
   const suffix: Record<string, string> = { PLN: 'zł', EUR: '€', USD: '$', GBP: '£', CZK: 'Kč' };
   return `${formatAmount(cents)} ${suffix[currency] ?? currency}`.trim();

@@ -743,6 +743,8 @@ export const estimates = pgTable(
     urgencyFeeCents: money('urgency_fee_cents'),
     taxCents: money('tax_cents'),
     totalCents: money('total_cents'),
+    /** Waluta dokumentu — migawka z chwili utworzenia (bez przeliczania po kursach). */
+    currency: text('currency').default('PLN').notNull(),
     validUntil: timestamp('valid_until', { withTimezone: true }),
     notes: text('notes'),
     terms: text('terms'),
@@ -812,6 +814,8 @@ export const quotes = pgTable(
     urgencyFeeCents: money('urgency_fee_cents'),
     taxCents: money('tax_cents'),
     totalCents: money('total_cents'),
+    /** Waluta dokumentu — migawka z chwili utworzenia (bez przeliczania po kursach). */
+    currency: text('currency').default('PLN').notNull(),
     validUntil: timestamp('valid_until', { withTimezone: true }),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     viewedAt: timestamp('viewed_at', { withTimezone: true }),
@@ -913,6 +917,8 @@ export const jobs = pgTable(
     subtotalCents: money('subtotal_cents'),
     taxCents: money('tax_cents'),
     totalCents: money('total_cents'),
+    /** Waluta dokumentu — migawka z chwili utworzenia (bez przeliczania po kursach). */
+    currency: text('currency').default('PLN').notNull(),
     notes: text('notes'),
     internalNotes: text('internal_notes'),
     completionNote: text('completion_note'),
@@ -1157,6 +1163,8 @@ export const invoices = pgTable(
     subtotalCents: money('subtotal_cents'),
     taxCents: money('tax_cents'),
     totalCents: money('total_cents'),
+    /** Waluta dokumentu — migawka z chwili utworzenia (bez przeliczania po kursach). */
+    currency: text('currency').default('PLN').notNull(),
     paidCents: money('paid_cents'),
     notes: text('notes'),
     paymentMethod: paymentMethodEnum('payment_method'),

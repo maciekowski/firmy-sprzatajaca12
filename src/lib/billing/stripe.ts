@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { PLANS, type Plan } from './plans';
+import { isSupportedCurrency, SUPPORTED_CURRENCIES } from '@/lib/money';
 
 /**
  * Integracja płatności Stripe.
@@ -92,6 +93,13 @@ export async function createInvoiceCheckoutSession(input: CheckoutSessionInput):
   if (!status.configured) return { ok: false, error: status.detail, notConfigured: true };
   if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) {
     return { ok: false, error: 'Kwota do zapłaty musi być większa od zera.', notConfigured: false };
+  }
+  if (!isSupportedCurrency(input.currency)) {
+    return {
+      ok: false,
+      error: `Płatność kartą nie jest dostępna dla waluty ${input.currency}. Obsługiwane: ${SUPPORTED_CURRENCIES.join(', ')} — tę fakturę można opłacić przelewem.`,
+      notConfigured: false,
+    };
   }
 
   const stripe = getStripe();

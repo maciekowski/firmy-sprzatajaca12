@@ -52,7 +52,7 @@ export default async function PublicQuotePage({
   await markQuoteViewed(quote.id);
   void requestHeaders;
 
-  const currency = organization?.currency ?? 'PLN';
+  const currency = quote.currency ?? organization?.currency ?? 'PLN';
   const expired = quote.validUntil ? quote.validUntil < new Date() : false;
   const decided = quote.status === 'ACCEPTED' || quote.status === 'REJECTED';
   const notification = blad ? RESULT.blad : wynik ? RESULT[wynik] : undefined;

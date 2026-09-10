@@ -78,6 +78,7 @@ export type PortalData = {
     number: string;
     status: string;
     totalCents: number;
+    currency: string;
     createdAt: Date;
     validUntil: Date | null;
     publicToken: string;
@@ -96,6 +97,7 @@ export type PortalData = {
     status: string;
     totalCents: number;
     paidCents: number;
+    currency: string;
     dueDate: Date | null;
     publicToken: string;
   }[];
@@ -149,6 +151,7 @@ export async function getCustomerPortalData(token: string): Promise<PortalData |
       number: quote.number,
       status: quote.status,
       totalCents: quote.totalCents,
+      currency: quote.currency ?? 'PLN',
       createdAt: quote.createdAt,
       validUntil: quote.validUntil,
       publicToken: quote.publicToken,
@@ -167,6 +170,7 @@ export async function getCustomerPortalData(token: string): Promise<PortalData |
       status: invoice.status,
       totalCents: invoice.totalCents,
       paidCents: invoice.paidCents,
+      currency: invoice.currency ?? 'PLN',
       dueDate: invoice.dueDate,
       publicToken: invoice.publicToken,
     })),

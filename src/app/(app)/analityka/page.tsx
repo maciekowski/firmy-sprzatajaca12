@@ -19,6 +19,18 @@ export default async function AnalyticsPage() {
     <>
       <PageHeader title="Analityka" description="Wskaźniki liczone z bazy danych — żadnych stałych wartości." />
 
+      {analytics.revenueByCurrency.length > 1 ? (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Faktury są wystawione w więcej niż jednej walucie — poniższe sumy są w {currency}. System nie przelicza
+          walut po kursie, dlatego pozostałe pokazujemy osobno:{' '}
+          {analytics.revenueByCurrency
+            .filter((row) => row.currency !== currency)
+            .map((row) => `${formatMoney(row.paidCents, row.currency)} opłacone`)
+            .join(', ')}
+          .
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Przychód (opłacone)" value={formatMoney(analytics.revenuePaidCents, currency)} tone="success" />
         <Stat label="Zafakturowano" value={formatMoney(analytics.revenueInvoicedCents, currency)} />

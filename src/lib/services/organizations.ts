@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { db } from '@/lib/db/client';
 import { memberships, organizations, users, type Role } from '@/lib/db/schema';
 import { writeAuditLog } from '@/lib/audit';
+import { normalizeCurrency } from '@/lib/money';
 
 export type ServiceContext = { organizationId: string; userId: string; userName: string };
 

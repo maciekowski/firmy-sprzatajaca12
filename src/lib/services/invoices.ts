@@ -51,6 +51,7 @@ function addDays(date: Date, days: number): Date {
 export async function createInvoice(ctx: ServiceContext, draft: InvoiceDraft): Promise<OperationResult<Invoice>> {
   const orgRows = await db.select().from(organizations).where(eq(organizations.id, ctx.organizationId)).limit(1);
   const organization = orgRows[0];
+  const organizationCurrency = organization?.currency ?? 'PLN';
 
   const customerRows = await db
     .select()
@@ -98,6 +99,7 @@ export async function createInvoice(ctx: ServiceContext, draft: InvoiceDraft): P
       jobId: draft.jobId ?? null,
       quoteId: draft.quoteId ?? null,
       status: 'DRAFT',
+      currency: organizationCurrency,
       publicToken: newId('itok'),
       issueDate,
       dueDate,

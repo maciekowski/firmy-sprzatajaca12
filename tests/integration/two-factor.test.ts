@@ -84,6 +84,19 @@ describe('2FA (TOTP) — dostęp i jednorazowość kodów', () => {
     expect([303, 307, 302]).toContain(response.status);
   });
 
+  it('sesja oczekująca na 2FA wygasa po 10 minutach (nie 30 dniach)', async () => {
+    const { sessionExpiresAt } = await import('@/lib/auth/session');
+    const now = new Date();
+
+    const pending = sessionExpiresAt(true, now);
+    const minutes = (pending.getTime() - now.getTime()) / 60_000;
+    expect(minutes).toBe(10);
+
+    const normal = sessionExpiresAt(false, now);
+    const days = (normal.getTime() - now.getTime()) / (24 * 60 * 60 * 1000);
+    expect(days).toBe(30);
+  });
+
   it('strona weryfikacji bez sesji oczekującej przekierowuje do logowania', async () => {
     const token = await makeSession(userId, false);
     const response = await fetch(`${BASE_URL}/logowanie/2fa`, {

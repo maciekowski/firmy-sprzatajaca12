@@ -97,6 +97,14 @@ w bazie — bez faktur roboczych i anulowanych, z kwotami przeliczonymi z groszy
 kontrolnymi. Brak NIP firmy lub pusty okres to **jasny błąd**, nigdy pusty plik (plik zostałby
 odrzucony przez urząd).
 
+## Wielowalutowość (bez wymyślonych kursów)
+
+Dokument (wycena, oferta, zlecenie, faktura) zapamiętuje walutę z chwili utworzenia —
+późniejsza zmiana waluty firmy nie przelicza historii. System **nie przelicza walut po kursie**:
+analityka raportuje przychód osobno dla każdej waluty, konto klienta pokazuje kwoty w walucie
+dokumentu, a płatność kartą działa wyłącznie dla obsługiwanych walut (PLN, EUR, USD, GBP, CZK —
+wszystkie rozliczane w setnych częściach, dlatego walut bez groszy nie obsługujemy).
+
 ## Subskrypcja i okres próbny
 
 - nowa firma dostaje 10 dni próby (`trialEndsAt`, `subscriptionStatus = TRIALING`) — ustawia to serwer,
@@ -117,7 +125,7 @@ odrzucony przez urząd).
 ## Testy
 
 ```bash
-npm test                      # 213 testów (wymaga uruchomionej bazy i serwera)
+npm test                      # 221 testów (wymaga uruchomionej bazy i serwera)
 npx vitest run tests/unit     # reguły: ceny, pieniądze, subskrypcja, zgody, paginacja
 npx vitest run tests/security # IDOR, role, webhooki, rate limiting — „brak dostępu = test zaliczony”
 ```
@@ -128,7 +136,7 @@ komunikacja (statusy dostarczenia), konto klienta, zaproszenia do zespołu, kole
 (notatki, zdjęcia, status, checklista, czas pracy — idempotencja `clientId`), 2FA (TOTP,
 kody zapasowe, blokada sesji), eksport JPK_FA (sumy, wykluczenia), KSeF, AI (silnik
 regułowy), izolacja danych, uprawnienia ról, wydajność przy 2000 dokumentach oraz
-renderowanie każdej strony (HTTP).
+wielowalutowość (migawka waluty, brak kursów), renderowanie każdej strony (HTTP).
 
 Instrukcja uruchomienia na prawdziwych kluczach (Stripe, Resend, KSeF, AI, cron) oraz
 checklista przedprodukcyjna: [`WDROZENIE.md`](./WDROZENIE.md).

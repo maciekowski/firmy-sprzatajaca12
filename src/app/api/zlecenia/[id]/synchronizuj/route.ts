@@ -120,8 +120,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return NextResponse.json({ error: 'Brak pozycji do synchronizacji.' }, { status: 400 });
   }
-  if (rawItems.length > 100) {
-    return NextResponse.json({ error: 'Partia może mieć maksymalnie 100 pozycji.' }, { status: 413 });
+  if (rawItems.length > 50) {
+    return NextResponse.json({ error: 'Partia może mieć maksymalnie 50 pozycji.' }, { status: 413 });
   }
 
   const ctx = {

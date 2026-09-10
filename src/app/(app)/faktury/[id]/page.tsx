@@ -54,7 +54,8 @@ export default async function InvoicePage({
 
   const [items, payments] = await Promise.all([getInvoiceItems(id), getInvoicePayments(id)]);
 
-  const currency = context.organization.currency;
+  // waluta jest zapisana na dokumencie (migawka z dnia wystawienia)
+  const currency = invoice.currency ?? context.organization.currency;
   const statusLabel = INVOICE_STATUSES.find((item) => item.value === invoice.status)?.label ?? invoice.status;
   const remaining = invoice.totalCents - invoice.paidCents;
   const publicUrl = `${(process.env.APP_URL ?? '').replace(/\/$/, '')}/f/${invoice.publicToken}`;

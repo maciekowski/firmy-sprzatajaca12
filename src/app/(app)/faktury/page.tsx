@@ -136,8 +136,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams: Pro
                     <td>{invoice.buyerName}</td>
                     <td className="tabular">{formatDate(invoice.issueDate)}</td>
                     <td className="tabular">{formatDate(invoice.dueDate)}</td>
-                    <td className="tabular">{formatMoney(invoice.totalCents, currency)}</td>
-                    <td className="tabular font-medium">{formatMoney(invoice.totalCents - invoice.paidCents, currency)}</td>
+                    <td className="tabular">{formatMoney(invoice.totalCents, invoice.currency ?? currency)}</td>
+                    <td className="tabular font-medium">{formatMoney(invoice.totalCents - invoice.paidCents, invoice.currency ?? currency)}</td>
                     <td>
                       <Badge tone={INVOICE_STATUS_TONES[invoice.status] ?? 'neutral'}>{statusLabel(invoice.status)}</Badge>
                     </td>

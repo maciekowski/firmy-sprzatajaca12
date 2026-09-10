@@ -11,6 +11,17 @@ export const ORG_COOKIE = 'sf_org';
 
 const SESSION_DAYS = 30;
 const SESSION_MS = SESSION_DAYS * 24 * 60 * 60 * 1000;
+/** Sesja oczekująca na drugi składnik: 10 minut (nie 30 dni). */
+export const PENDING_2FA_MINUTES = 10;
+const PENDING_2FA_MS = PENDING_2FA_MINUTES * 60 * 1000;
+
+/**
+ * Czas wygaśnięcia sesji. Sesja przed podaniem kodu TOTP żyje krótko —
+ * to jeszcze nie jest zalogowany użytkownik, a przedłużanie jej byłoby luką.
+ */
+export function sessionExpiresAt(awaiting2fa: boolean, now: Date = new Date()): Date {
+  return new Date(now.getTime() + (awaiting2fa ? PENDING_2FA_MS : SESSION_MS));
+}
 
 export type SessionUser = User;
 
@@ -28,9 +39,13 @@ export async function createSession(
   userAgent?: string | null,
   options: { awaiting2fa?: boolean } = {},
 ): Promise<string> {
+  const awaiting2fa = options.awaiting2fa ?? false;
+  // Sesja przed podaniem kodu TOTP żyje krótko — to nie jest jeszcze zalogowany użytkownik.
+  const ttlMs = (awaiting2fa ? PENDING_2FA_MS : SESSION_MS);
+
   const token = randomBytes(32).toString('base64url');
   const tokenHash = hashToken(token);
-  const expiresAt = new Date(Date.now() + SESSION_MS);
+  const expiresAt = sessionExpiresAt(awaiting2fa);
 
   await db.insert(sessions).values({
     tokenHash,
@@ -38,7 +53,7 @@ export async function createSession(
     expiresAt,
     ip: ip ?? null,
     userAgent: userAgent ?? null,
-    awaiting2fa: options.awaiting2fa ?? false,
+    awaiting2fa,
   });
 
   const store = await cookies();
@@ -47,7 +62,7 @@ export async function createSession(
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
     path: '/',
-    maxAge: SESSION_DAYS * 24 * 60 * 60,
+    maxAge: Math.floor(ttlMs / 1000),
   });
 
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId));

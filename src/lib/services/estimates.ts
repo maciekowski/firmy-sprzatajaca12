@@ -187,6 +187,7 @@ export async function getEstimateItems(estimateId: string): Promise<EstimateItem
 export async function createEstimate(ctx: ServiceContext, draft: DocumentDraft): Promise<Estimate> {
   const orgRows = await db.select().from(organizations).where(eq(organizations.id, ctx.organizationId)).limit(1);
   const organization = orgRows[0];
+  const organizationCurrency = organization?.currency ?? 'PLN';
   const { input } = await buildPricingInput(ctx.organizationId, draft);
   const result = computeDocumentPricing(input);
 
@@ -204,6 +205,7 @@ export async function createEstimate(ctx: ServiceContext, draft: DocumentDraft):
       addressId: draft.addressId ?? null,
       leadId: draft.leadId ?? null,
       status: 'DRAFT',
+      currency: organizationCurrency,
       addressLabel: address[0]?.label ?? null,
       addressStreet: address[0]?.street ?? null,
       addressCity: address[0]?.city ?? null,
@@ -372,6 +374,7 @@ export async function createQuoteFromEstimate(
       number,
       version: nextVersion,
       estimateId,
+      currency: estimate.currency,
       customerId: estimate.customerId,
       addressId: estimate.addressId,
       status: 'DRAFT',
