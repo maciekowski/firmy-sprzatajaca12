@@ -1,0 +1,104 @@
+import 'server-only';
+import { randomBytes } from 'node:crypto';
+import { cookies } from 'next/headers';
+import { and, eq, gt, isNull } from 'drizzle-orm';
+import { db } from '@/lib/db/client';
+import { sessions, users, type User } from '@/lib/db/schema';
+import { hashToken } from './tokens';
+
+export const SESSION_COOKIE = 'sf_session';
+export const ORG_COOKIE = 'sf_org';
+
+const SESSION_DAYS = 30;
+const SESSION_MS = SESSION_DAYS * 24 * 60 * 60 * 1000;
+
+export type SessionUser = User;
+
+/**
+ * Tworzy sesję: losowy token trafia do ciasteczka, w bazie zostaje tylko jego skrót.
+ * Dzięki temu wyciek bazy nie pozwala przejąć aktywnych sesji.
+ */
+export async function createSession(userId: string, ip?: string | null, userAgent?: string | null): Promise<string> {
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + SESSION_MS);
+
+  await db.insert(sessions).values({
+    tokenHash,
+    userId,
+    expiresAt,
+    ip: ip ?? null,
+    userAgent: userAgent ?? null,
+  });
+
+  const store = await cookies();
+  store.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: SESSION_DAYS * 24 * 60 * 60,
+  });
+
+  await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId));
+
+  return token;
+}
+
+/** Wylogowanie: usuwamy sesję z bazy i czyścimy ciasteczko. */
+export async function destroySession(): Promise<void> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (token) {
+    await db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)));
+  }
+  store.delete(SESSION_COOKIE);
+}
+
+/** Usuwa wszystkie sesje użytkownika (np. po zmianie hasła). */
+export async function destroyAllSessions(userId: string): Promise<void> {
+  await db.delete(sessions).where(eq(sessions.userId, userId));
+}
+
+export async function getSessionUser(): Promise<SessionUser | null> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  return getUserBySessionToken(token);
+}
+
+export async function getUserBySessionToken(token: string): Promise<SessionUser | null> {
+  const rows = await db
+    .select({ user: users })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, new Date()), isNull(sessions.revokedAt)))
+    .limit(1);
+
+  if (rows.length === 0) return null;
+
+  // odświeżenie „ostatniego użycia” najwyżej raz na 5 minut (bez zbędnych write’ów)
+  const sessionRow = await db.select().from(sessions).where(eq(sessions.tokenHash, hashToken(token))).limit(1);
+  const session = sessionRow[0];
+  if (session && Date.now() - session.lastUsedAt.getTime() > 5 * 60 * 1000) {
+    await db.update(sessions).set({ lastUsedAt: new Date() }).where(eq(sessions.id, session.id));
+  }
+
+  return rows[0].user;
+}
+
+export async function setActiveOrganizationCookie(organizationId: string): Promise<void> {
+  const store = await cookies();
+  store.set(ORG_COOKIE, organizationId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 365 * 24 * 60 * 60,
+  });
+}
+
+export async function getActiveOrganizationId(): Promise<string | null> {
+  const store = await cookies();
+  return store.get(ORG_COOKIE)?.value ?? null;
+}

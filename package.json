@@ -1,0 +1,72 @@
+{
+  "name": "serviceflow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ServiceFlow — system operacyjny dla firm usługowych: od zapytania klienta do opłaconego zlecenia.",
+  "scripts": {
+    "dev": "next dev -p ${PORT:-3000} -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start -p ${PORT:-3000} -H 0.0.0.0",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "pg": "node scripts/pg.mjs",
+    "db:init": "node scripts/pg.mjs init",
+    "db:start": "node scripts/pg.mjs start",
+    "db:stop": "node scripts/pg.mjs stop",
+    "db:status": "node scripts/pg.mjs status",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx scripts/seed.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:security": "vitest run tests/security",
+    "worker": "tsx scripts/worker.ts",
+    "cron": "tsx scripts/cron.ts",
+    "setup": "node scripts/bootstrap.mjs",
+    "verify": "node scripts/verify.mjs",
+    "test:e2e": "vitest run tests/e2e"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "date-fns": "4.1.0",
+    "decimal.js": "10.5.0",
+    "drizzle-orm": "^0.45.2",
+    "lucide-react": "0.469.0",
+    "next": "^15.5.25",
+    "nodemailer": "^10.0.3",
+    "pdfkit": "0.15.2",
+    "pg": "^8.23.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
+    "stripe": "17.5.0",
+    "zod": "3.24.1"
+  },
+  "devDependencies": {
+    "@embedded-postgres/linux-x64": "16.14.0-beta.17",
+    "@types/node": "22.10.7",
+    "@types/nodemailer": "6.4.17",
+    "@types/pdfkit": "0.13.9",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "10.4.20",
+    "dotenv": "16.4.7",
+    "drizzle-kit": "^0.31.10",
+    "embedded-postgres": "16.14.0-beta.17",
+    "postcss": "^8.5.28",
+    "tailwindcss": "3.4.17",
+    "tsx": "4.19.2",
+    "typescript": "5.7.3",
+    "vitest": "2.1.8"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "overrides": {
+    "postcss": "$postcss"
+  }
+}

@@ -1,0 +1,27 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+*.log
+npm-debug.log*
+.DS_Store
+
+# środowisko
+.env
+.env.local
+.env*.local
+
+# lokalna baza danych (embedded postgres)
+.pgdata/
+.pg/
+
+# lokalny storage plików
+.storage/
+storage/uploads/
+
+# wygenerowane artefakty testowe
+test-results/
+playwright-report/
+.tmp/
