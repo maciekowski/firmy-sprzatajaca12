@@ -125,6 +125,10 @@ describe('strony aplikacji (HTTP)', () => {
       '/ustawienia/uslugi',
       '/ustawienia/integracje',
       '/ustawienia/konto',
+      '/leady',
+      '/leady/nowy',
+      '/zapytania',
+      '/zapytania/nowy',
     ];
     for (const path of paths) {
       const response = await get(path, cookieA);
